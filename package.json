@@ -1,0 +1,10 @@
+{
+  "name": "devils-trap",
+  "version": "1.0.0",
+  "description": "Devil's Trap — a first-person 3D rage-bait trap maze (vanilla JS + Three.js)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "verify": "node verify.mjs"
+  }
+}

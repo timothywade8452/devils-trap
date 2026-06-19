@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Devil's Trap — play</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body class="game">
+  <canvas id="c"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="hud-left"><span id="hud-level">LV 1/10</span><span id="hud-name">The Threshold</span></div>
+    <div id="hud-right"><span id="hud-deaths">☠ 0</span></div>
+  </div>
+  <div id="crosshair">+</div>
+  <div id="flash"></div>
+
+  <!-- intro / menu -->
+  <div id="intro">
+    <div class="card">
+      <h1>DEVIL'S&nbsp;TRAP</h1>
+      <p class="tag">A first-person rage-bait maze. The floor is a liar.</p>
+      <p class="rules">Walk to the <b>glowing orb</b>. That's the only exit — the doors are decorative.
+      Every other tile <i>looks</i> like solid floor. Most of them aren't. You will die. You will
+      memorize. The traps never move, so what kills you once teaches you forever. Spots that killed you
+      glow red on the next run.</p>
+      <button id="play-btn">CLICK TO ENTER</button>
+      <p class="ctrl"><b>WASD / arrows</b> move · <b>mouse</b> look · <b>space</b> jump · <b>R</b> restart · <b>esc</b> free cursor</p>
+    </div>
+  </div>
+
+  <!-- death / clear / victory overlay -->
+  <div id="msg"><div class="msg-inner">
+    <h2 id="msg-title">YOU DIED</h2>
+    <p id="msg-sub"></p>
+    <p id="msg-hint" class="hint"></p>
+  </div></div>
+
+  <!-- touch controls -->
+  <div id="touch">
+    <div id="stick"><div id="nub"></div></div>
+    <div id="jumpbtn">JUMP</div>
+  </div>
+
+  <script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script type="module" src="engine.js"></script>
+  <script>
+    document.getElementById("play-btn").addEventListener("click", () => {
+      // engine wires the canvas click; mirror it for the button
+      window.Trap ? window.Trap.start() : addEventListener("trap-ready", () => window.Trap.start(), { once: true });
+    });
+  </script>
+</body>
+</html>
