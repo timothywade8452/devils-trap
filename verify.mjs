@@ -68,7 +68,7 @@ const server = http.createServer((req, res) => {
   const fp = path.join(ROOT, p);
   fs.readFile(fp, (e, d) => { if (e) { res.writeHead(404); res.end("nf"); return; } res.writeHead(200, { "Content-Type": MIME[path.extname(fp)] || "text/plain" }); res.end(d); });
 });
-const PORT = 8754;
+const PORT = Number(process.env.PORT) || 8754;
 await new Promise((r) => server.listen(PORT, r));
 
 console.log("\n=== PART B · live engine (headless chromium) ===");
