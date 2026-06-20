@@ -16,9 +16,21 @@ plus a separate **Arena** boss-fight mode.
 ## Controls
 
 - **Desktop:** `WASD` / arrows move · **shift** sprint · **mouse** look · **space** jump ·
-  **scroll / + −** zoom · **left-click** fire (arena) · **R** restart · **M** mute · **⚙** settings
-- **Mobile:** on-screen joystick or D-pad · drag to look · **JUMP / RUN / FIRE** buttons — all
-  with adjustable opacity, size, handedness and drag-to-reposition layout
+  **F** sonar scout · **double-tap** a move key to dash (arena) · **scroll / + −** zoom ·
+  **left-click** fire (arena) · **R** restart · **M** mute · **⚙** settings
+- **Mobile:** on-screen joystick or D-pad · drag to look · **JUMP / RUN / FIRE / PING / DASH**
+  buttons — all with adjustable opacity, size, handedness and drag-to-reposition layout
+
+## Mechanics
+
+- **Sonar ping** (F / PING) — a limited tactical scout that flashes nearby traps for a moment so
+  you can de-risk your next steps. Radius + charges are limited, so memory still rules.
+- **Difficulty** (⚙) — **Casual** (5 pings, slow lava), **Normal** (3 pings), **Brutal** (no pings,
+  no exit beacon, fast lava) for the rage-seekers.
+- **Per-floor best** — a live timer and your best run (fewest deaths, then fastest) per floor, with a
+  NEW BEST callout.
+- **Arena dodge dash** + **health pickups** dropped by drones — survive longer, play with more skill.
+- Plus full **game juice**: screen shake, distinct per-trap death sounds, level-clear bursts.
 
 ## Arena mode ⚔
 

@@ -11,7 +11,7 @@ export const DEFAULTS = {
   // video
   brightness: 1.05, bloom: 0.8, quality: "high", vignette: true,
   // gameplay
-  moveSpeed: 1.0, sensitivity: 1.0, fov: 75, invertY: false, viewBob: true, autoAim: true,
+  difficulty: "normal", moveSpeed: 1.0, sensitivity: 1.0, fov: 75, invertY: false, viewBob: true, autoAim: true, screenShake: true,
   // mobile controls
   mScheme: "stick", mOpacity: 0.85, mScale: 1.0, mHanded: "right",
   mLayout: {},        // { stick:{x,y}, jump:{x,y}, shoot:{x,y}, sprint:{x,y} } in px from bottom-left
@@ -102,11 +102,13 @@ function buildPanel(isTouch) {
   sections.video.appendChild(choice("Quality", "quality", [["low", "Low"], ["med", "Medium"], ["high", "High"]]));
   sections.video.appendChild(toggle("Vignette", "vignette"));
   // gameplay
+  sections.game.appendChild(choice("Difficulty", "difficulty", [["casual", "Casual"], ["normal", "Normal"], ["brutal", "Brutal"]]));
   sections.game.appendChild(slider("Move speed", "moveSpeed", 0.6, 1.6, 0.05, (v) => v.toFixed(2) + "×"));
   sections.game.appendChild(slider("Look sensitivity", "sensitivity", 0.4, 2.2, 0.05, (v) => v.toFixed(2) + "×"));
   sections.game.appendChild(slider("Field of view", "fov", 60, 100, 1, (v) => Math.round(v) + "°"));
   sections.game.appendChild(toggle("Invert vertical look", "invertY"));
   sections.game.appendChild(toggle("View bob", "viewBob"));
+  sections.game.appendChild(toggle("Screen shake", "screenShake"));
   sections.game.appendChild(toggle("Aim assist (arena auto-target)", "autoAim"));
   // mobile
   if (isTouch) {

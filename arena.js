@@ -29,7 +29,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   const BOSS_COLOR = [0xff3b2e, 0xff9a3c, 0xc35cff];
   const ENRAGE_COLOR = [0xff1a4c, 0xffd23c, 0xff5cf0];
 
-  const bosses = [], drones = [], pProj = [], eProj = [], parts = [];
+  const bosses = [], drones = [], pProj = [], eProj = [], parts = [], orbs = [];
   let centerX = 0, centerZ = 0, droneTimer = 0, colorIx = 0, prevBosses = -1;
   let lockObj = null, lockRing = null;   // auto-aim target lock + its on-target reticle
 
@@ -39,7 +39,17 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
 
   function clearGroup() {
     for (let i = g.children.length - 1; i >= 0; i--) g.remove(g.children[i]);
-    bosses.length = drones.length = pProj.length = eProj.length = parts.length = 0;
+    bosses.length = drones.length = pProj.length = eProj.length = parts.length = orbs.length = 0;
+  }
+
+  // health pickup dropped by a dead drone — collect by walking over it
+  function spawnHealth(pos) {
+    if (orbs.length > 8) return;
+    const grp = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 0), new THREE.MeshStandardMaterial({ color: 0x0a2010, emissive: 0x45e07a, emissiveIntensity: 1.5, roughness: 0.3, metalness: 0.4 }));
+    grp.add(core); grp.add(halo(0x45e07a, 4, 0.5));
+    grp.position.set(pos.x, 1.4, pos.z); g.add(grp);
+    orbs.push({ m: grp, core, bob: Math.random() * 6, heal: 20 });
   }
 
   // ── a reusable additive glow sprite (halo) ──
@@ -222,7 +232,10 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   }
 
   function bossCount() { return bosses.length; }
-  function info() { return { bosses: bosses.length, drones: drones.length, playerProjectiles: pProj.length, enemyProjectiles: eProj.length, lock: !!lockObj, bossHp: bosses.reduce((s, b) => s + Math.max(0, b.hp), 0) }; }
+  function info() { return { bosses: bosses.length, drones: drones.length, playerProjectiles: pProj.length, enemyProjectiles: eProj.length, orbs: orbs.length, lock: !!lockObj, bossHp: bosses.reduce((s, b) => s + Math.max(0, b.hp), 0) }; }
+  // test hooks: force a health orb + force-kill drones (so the heal/drop path is verifiable)
+  function spawnHealthAt(x, z) { spawnHealth({ x, z }); }
+  function killDrones() { for (const d of drones) d.hp = 0; }
 
   // ── auto-aim target lock (mobile can't aim with a third thumb, so we lock the nearest threat) ──
   function ensureLockRing() {
@@ -447,7 +460,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       if (!hit) for (let j = drones.length - 1; j >= 0; j--) {
         const d = drones[j]; if (p.m.position.distanceTo(d.m.position) < 2) {
           d.hp -= p.dmg; d.flash = Math.max(d.flash, 0.2); burst(p.m.position, p.col, 5); audio.sfx("hit"); hit = true;
-          if (d.hp <= 0) { burst(d.m.position, ENEMY_COLOR, 12); shockwave(d.m.position, ENEMY_COLOR); audio.sfx("boom"); g.remove(d.m); drones.splice(j, 1); }
+          if (d.hp <= 0) { burst(d.m.position, ENEMY_COLOR, 12); shockwave(d.m.position, ENEMY_COLOR); audio.sfx("boom"); if (Math.random() < 0.34) spawnHealth(d.m.position); g.remove(d.m); drones.splice(j, 1); }
           break;
         }
       }
@@ -474,7 +487,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
 
     // safety sweep — any boss/drone brought to <=0 (e.g. overlapping hits) is cleaned up here
     for (let j = bosses.length - 1; j >= 0; j--) if (bosses[j].hp <= 0) killBoss(j);
-    for (let j = drones.length - 1; j >= 0; j--) if (drones[j].hp <= 0) { g.remove(drones[j].m); drones.splice(j, 1); }
+    for (let j = drones.length - 1; j >= 0; j--) if (drones[j].hp <= 0) { if (Math.random() < 0.34) spawnHealth(drones[j].m.position); g.remove(drones[j].m); drones.splice(j, 1); }
 
     // ── particles / sprites ──
     for (let i = parts.length - 1; i >= 0; i--) {
@@ -487,12 +500,19 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       if (p.life <= 0) { g.remove(p.m); parts.splice(i, 1); }
     }
 
+    // health pickups — bob + collect on contact
+    let healCollected = 0;
+    for (let i = orbs.length - 1; i >= 0; i--) {
+      const o = orbs[i]; o.bob += dt * 3; o.m.position.y = 1.4 + Math.sin(o.bob) * 0.25; o.core.rotation.y += dt * 1.6;
+      if (live) { const dx = o.m.position.x - playerPos.x, dz = o.m.position.z - playerPos.z; if (dx * dx + dz * dz < 6.25) { healCollected += o.heal; burst(o.m.position, 0x45e07a, 8); g.remove(o.m); orbs.splice(i, 1); } }
+    }
+
     // maintain the auto-aim lock + reticle (uses the freshly-moved enemy positions)
     updateLock(camera, playerPos, dt);
 
     const bossesLeft = bosses.length;
     const changed = bossesLeft !== prevBosses; prevBosses = bossesLeft;
-    return { playerDamage, bossesLeft, win: bossesLeft === 0, changed };
+    return { playerDamage, bossesLeft, win: bossesLeft === 0, changed, healCollected };
   }
 
   function killBoss(j) {
@@ -505,5 +525,5 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   }
 
   function damageAll(n) { for (const b of bosses) b.hp -= n; }   // test hook for the win pipeline
-  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, lockedAim, hasLock };
+  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, lockedAim, hasLock, spawnHealthAt, killDrones };
 }

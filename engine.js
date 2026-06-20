@@ -28,6 +28,14 @@ const TAUNTS = {
   void:   ["You never learn.", "Reset your math, not your luck.", "Down you go."],
   shot:   ["Out-gunned.", "The bosses send their regards.", "You blinked. They didn't."],
 };
+// difficulty presets — sonar charges per life, exit beacon, rising-lava speed
+const DIFF = {
+  casual: { pings: 5, beacon: true,  lavaMult: 0.8 },
+  normal: { pings: 3, beacon: true,  lavaMult: 1.0 },
+  brutal: { pings: 0, beacon: false, lavaMult: 1.35 },
+};
+const diff = () => DIFF[S.difficulty] || DIFF.normal;
+const DASH_SPEED = 26, DASH_CD = 1.1, DASH_IFRAME = 0.35;   // arena dodge dash
 
 // ───────────────────────── three setup ─────────────────────────
 const canvas = document.getElementById("c");
@@ -144,10 +152,19 @@ let state = "menu";                 // menu | play | dead | win | victory
 let mode = "maze";                  // maze | arena
 let arena = null;                   // arena controller (created on first arena run)
 let prevBossesLeft = 0;             // for awarding leaderboard points per boss killed
-const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0, hp: 100 };
+const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0, hp: 100, invuln: 0 };
 let lavaY = -50, lavaPlane = null, riseTimer = 0;
 let bobPhase = 0, stepDist = 0;     // view-bob + footstep cadence
+let pings = 0;                      // sonar scout charges this life
+const pingMarks = [];               // active reveal markers { mesh, life, max, rise }
+const fx = [];                      // transient celebration particles
+let shakeT = 0, shakeMag = 0;       // screen-shake impulse
+let levelStartT = 0;                // wall-clock start of the current floor (for the timer)
+let dashCD = 0;                     // arena dash cooldown
+let lastTapCode = "", lastTapT = 0; // double-tap detection for dash
 const clock = new THREE.Clock();
+const PB_KEY = "devilstrap_pb_v1";  // per-floor best { idx: {deaths, time} }
+let PB = {}; try { PB = JSON.parse(localStorage.getItem(PB_KEY) || "{}"); } catch { PB = {}; }
 
 const HUD = {
   level: document.getElementById("hud-level"), name: document.getElementById("hud-name"),
@@ -163,9 +180,9 @@ function cellOf(x, z) { return [Math.round(z / TS), Math.round(x / TS)]; }
 
 // ───────────────────────── build a level ─────────────────────────
 function buildLevel(i) {
-  levelIdx = i; deaths = 0; sprung = new Set(); riseTimer = 0;
+  levelIdx = i; deaths = 0; sprung = new Set(); riseTimer = 0; levelStartT = clock.elapsedTime;
   for (let k = world.children.length - 1; k >= 0; k--) world.remove(world.children[k]);
-  dynamic.length = 0;
+  dynamic.length = 0; pingMarks.length = 0; fx.length = 0;
   const L = LEVELS[i]; grid = L.grid.map((r) => r.split("")); gridH = grid.length; gridW = grid[0].length;
   // apply this act's colour theme
   const theme = THEMES[L.tier || 0];
@@ -204,12 +221,14 @@ function buildLevel(i) {
   const orbLight = new THREE.PointLight(theme.accent, 1.4, 40, 2); orbLight.position.copy(orb.position); world.add(orbLight);
   // exit beacon: a tall shaft of light that rises above the walls so you can always orient
   // toward the real exit (it shows WHERE to go, never which tiles are safe).
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.45, 1.5, WALL_H * 3.2, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
-  );
-  beam.position.set(worldX(L.goal.c), WALL_H * 1.6, worldZ(L.goal.r)); world.add(beam);
-  dynamic.push((t) => { orb.position.y = 2.2 + Math.sin(t * 2) * 0.3; halo.position.y = orb.position.y; orbLight.position.y = orb.position.y; const p = 2 + Math.sin(t * 4) * 0.6; orb.material.emissiveIntensity = p; beam.material.opacity = 0.12 + Math.sin(t * 3) * 0.05; });
+  // the exit beacon (a light shaft over the walls) is a navigation aid — off on Brutal
+  let beam = null;
+  if (diff().beacon) {
+    beam = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 1.5, WALL_H * 3.2, 20, 1, true),
+      new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    beam.position.set(worldX(L.goal.c), WALL_H * 1.6, worldZ(L.goal.r)); world.add(beam);
+  }
+  dynamic.push((t) => { orb.position.y = 2.2 + Math.sin(t * 2) * 0.3; halo.position.y = orb.position.y; orbLight.position.y = orb.position.y; orb.material.emissiveIntensity = 2 + Math.sin(t * 4) * 0.6; if (beam) beam.material.opacity = 0.12 + Math.sin(t * 3) * 0.05; });
 
   // rising-lava finale plane
   lavaPlane = null;
@@ -236,15 +255,17 @@ function respawn() {
   sprung = new Set();
   // un-drop any pit slabs
   world.traverse((m) => { if (m.userData && m.userData.pitTile) { m.position.y = 0; m.visible = true; } });
+  pings = diff().pings; player.invuln = 0; shakeT = 0; clearPingMarks();
   state = "play"; hideMsg();
-  updateHUD();
+  updateHUD(); updatePingHUD();
 }
+function clearPingMarks() { for (const m of pingMarks) world.remove(m.mesh); pingMarks.length = 0; }
 
 function die(reason) {
   if (state !== "play") return;
   state = "dead"; deaths++; totalDeaths++;
   addDeath(); lbSubmit();                 // leaderboard: count the death
-  flash("#c01010"); AUDIO.sting("die");
+  flash("#c01010"); AUDIO.sting("die"); AUDIO.trap(reason); shake(0.4, 0.35);
   const pool = TAUNTS[reason] || TAUNTS.void;
   const label = mode === "arena" ? "FIGHT AGAIN" : "RETRY";
   showMsg("YOU DIED", pool[Math.floor(Math.random() * pool.length)],
@@ -254,19 +275,24 @@ function die(reason) {
 
 function winLevel() {
   if (state !== "play") return;
-  flash("#10c040"); AUDIO.sting("win");
+  const L = LEVELS[levelIdx], theme = THEMES[L.tier || 0];
+  flash("#10c040"); AUDIO.sting("win"); shake(0.22, 0.3);
+  spawnBurst(worldX(L.goal.c), 2.4, worldZ(L.goal.r), theme.accent, 40);
+  // per-floor best (fewest deaths, then fastest)
+  const time = clock.elapsedTime - levelStartT, prev = PB[levelIdx];
+  const isBest = !prev || deaths < prev.deaths || (deaths === prev.deaths && time < prev.time);
+  if (isBest) { PB[levelIdx] = { deaths, time: +time.toFixed(1) }; try { localStorage.setItem(PB_KEY, JSON.stringify(PB)); } catch {} }
   // leaderboard: award the cleared floor + record furthest floor reached
   addPoints(levelPoints(levelIdx)); bumpLevel(levelIdx + 1);
+  const tline = `Cleared in ${time.toFixed(1)}s · ☠${deaths}`;
   if (levelIdx + 1 >= LEVELS.length) {
-    addPoints(SCORE.fullVictory);
-    state = "victory";
+    addPoints(SCORE.fullVictory); state = "victory";
     showMsg("YOU ESCAPED", "All " + LEVELS.length + " floors. The Devil is impressed.",
       "Total deaths: " + totalDeaths + "  ·  Space to replay", { label: "PLAY AGAIN", clear: true });
   } else {
-    state = "win";
-    const next = LEVELS[levelIdx + 1];
-    showMsg("LEVEL " + (levelIdx + 1) + " CLEAR", next.taunt,
-      "Next: " + next.name + "  ·  Space to continue", { label: "NEXT FLOOR", clear: true });
+    state = "win"; const next = LEVELS[levelIdx + 1];
+    showMsg("FLOOR " + (levelIdx + 1) + " CLEAR", (isBest ? "★ NEW BEST!  " : "") + next.taunt,
+      tline + "  ·  Space to continue", { label: "NEXT FLOOR", clear: true });
   }
   lbSubmit();
 }
@@ -291,6 +317,13 @@ addEventListener("keydown", (e) => {
   if (e.code === "Digit0" || e.code === "Numpad0") targetFov = BASE_FOV;
   if (e.code === "KeyM") toggleMute();
   if (e.code === "KeyP") { openSettings(); }
+  if (e.code === "KeyF") sonarPing();                       // sonar scout (maze)
+  // double-tap a movement key to dodge-dash (arena)
+  if (!e.repeat && /^(Key[WASD]|Arrow(Up|Down|Left|Right))$/.test(e.code)) {
+    const now = clock.elapsedTime;
+    if (e.code === lastTapCode && now - lastTapT < 0.3) tryDash();
+    lastTapCode = e.code; lastTapT = now;
+  }
 });
 // mouse wheel = zoom in / out
 addEventListener("wheel", (e) => { if (state === "play" && !isSettingsOpen()) { targetFov = clamp(targetFov + Math.sign(e.deltaY) * 5, 30, 100); e.preventDefault(); } }, { passive: false });
@@ -333,6 +366,8 @@ function defaultPos(ctrl) {            // [left, bottom] in px; move control opp
     case "jump":   return [actX, mb + 6];
     case "sprint": return moveLeft ? [actX - 104, mb + 6] : [actX + 104, mb + 6];
     case "shoot":  return [actX, mb + 116];
+    case "dash":   return moveLeft ? [actX - 104, mb + 116] : [actX + 104, mb + 116];
+    case "ping":   return [actX, mb + 116];
   }
   return [ml, mb];
 }
@@ -348,13 +383,16 @@ function applyMobileLayout() {
     el.style.opacity = S.mOpacity; el.style.transform = `scale(${S.mScale})`; el.style.transformOrigin = "center";
     el.dataset.ctrl = ctrl;
   };
-  place(moveEl, "move"); place(T.jump, "jump"); place(T.sprint, "sprint"); place(T.shoot, "shoot");
+  place(moveEl, "move"); place(T.jump, "jump"); place(T.sprint, "sprint"); place(T.shoot, "shoot"); place(T.dash, "dash"); place(T.ping, "ping");
   T.shoot.style.display = (mode === "arena") ? "flex" : "none";
+  T.dash.style.display = (mode === "arena") ? "flex" : "none";
+  T.ping.style.display = (mode === "maze" && diff().pings > 0) ? "flex" : "none";
 }
 
 function setupTouch() {
   T.touch = document.getElementById("touch"); T.stick = document.getElementById("stick"); T.nub = document.getElementById("nub");
   T.dpad = document.getElementById("dpad"); T.jump = document.getElementById("jumpbtn"); T.sprint = document.getElementById("sprintbtn"); T.shoot = document.getElementById("shootbtn");
+  T.ping = document.getElementById("pingbtn"); T.dash = document.getElementById("dashbtn");
   if (!isTouch) return;
   document.body.classList.add("is-touch");   // unlocks touch-only CSS (top combat HUD, touch ctrl hint)
   T.touch.style.display = "block";
@@ -384,6 +422,8 @@ function setupTouch() {
   holdBtn(T.jump, () => { if (state === "play" && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; } });
   holdBtn(T.sprint, () => { touchSprint = true; }, () => { touchSprint = false; });
   holdBtn(T.shoot, () => { shootHeld = true; fire(); }, () => { shootHeld = false; });
+  holdBtn(T.ping, () => sonarPing());
+  holdBtn(T.dash, () => tryDash());
 
   // analog stick
   let stickId = null, origin = null;
@@ -464,6 +504,7 @@ function collide(pos) {
 
 function tick(dt) {
   if (state !== "play") return;
+  if (dashCD > 0) dashCD -= dt; if (player.invuln > 0) player.invuln -= dt;
   const frozen = isSettingsOpen();
   // movement intent (camera-relative)
   let ix = 0, iz = 0;
@@ -498,9 +539,9 @@ function tick(dt) {
   if (hasFloor && player.pos.y <= 0.01 && player.vel.y <= 0) { player.pos.y = 0; player.vel.y = 0; player.grounded = true; player.coyote = 0.12; }
   else { player.vel.y -= GRAV * dt; player.pos.y += player.vel.y * dt; player.grounded = false; player.coyote = Math.max(0, player.coyote - dt); }
 
-  // rising lava
+  // rising lava (faster on Brutal, slower on Casual)
   if (lavaPlane) {
-    riseTimer -= dt; const L = LEVELS[levelIdx];
+    riseTimer -= dt * diff().lavaMult; const L = LEVELS[levelIdx];
     lavaY = THREE.MathUtils.lerp(-50, WALL_H, 1 - Math.max(0, riseTimer) / L.riseTime);
     lavaPlane.position.y = lavaY;
     if (player.pos.y < lavaY) { die("lavarise"); return; }
@@ -519,9 +560,91 @@ function tick(dt) {
 function dropPit(r, c) { world.traverse((m) => { if (m.userData && m.userData.pitTile === `${r},${c}` && m.visible) { m.userData.dropping = true; } }); }
 function springVisual(ch, r, c) {
   const x = worldX(c), z = worldZ(r);
-  if (ch === "^") { for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.35, 2.4, 6), MAT.spike); s.position.set(x + (Math.random() - 0.5) * 2.5, 1.2, z + (Math.random() - 0.5) * 2.5); world.add(s); } }
-  if (ch === "C") { const b = new THREE.Mesh(new THREE.BoxGeometry(TS, TS, TS), MAT.wall); b.position.set(x, 2, z); world.add(b); }
-  if (ch === "J") { player.vel.y = 22; player.vel.x *= 3; player.vel.z *= 3; }
+  if (ch === "^") { for (let i = 0; i < 5; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.35, 2.4, 6), MAT.spike); s.position.set(x + (Math.random() - 0.5) * 2.5, 1.2, z + (Math.random() - 0.5) * 2.5); world.add(s); } shake(0.18, 0.22); }
+  if (ch === "C") { const b = new THREE.Mesh(new THREE.BoxGeometry(TS, TS, TS), MAT.wall); b.position.set(x, 2, z); world.add(b); shake(0.45, 0.3); }
+  if (ch === "J") { player.vel.y = 22; player.vel.x *= 3; player.vel.z *= 3; shake(0.3, 0.25); }
+  if (ch === "o") shake(0.12, 0.18);
+}
+
+// ───────────────────────── sonar ping (maze scout) ─────────────────────────
+// A limited tactical reveal: lights up nearby traps for a moment so you can de-risk the next
+// few steps. Doesn't reveal the whole maze (radius + limited charges), so memory still rules.
+const TRAP_REVEAL = { "^": 0xff3b2e, "J": 0xffd23c, "C": 0xff7a2e, "o": 0x5cc8ff, "~": 0xff5a18 };
+function sonarPing() {
+  if (mode !== "maze" || state !== "play" || isSettingsOpen() || pings <= 0) return 0;
+  pings--; updatePingHUD();
+  const [pr, pc] = cellOf(player.pos.x, player.pos.z); const R = 4;
+  let revealed = 0;
+  for (let r = pr - R; r <= pr + R; r++) for (let c = pc - R; c <= pc + R; c++) {
+    const dr = r - pr, dc = c - pc; if (dr * dr + dc * dc > R * R) continue;
+    const ch = tileAt(grid, r, c), col = TRAP_REVEAL[ch];
+    if (!col || (ch === "o" && sprung.has(`${r},${c}`))) continue;
+    addRevealMark(worldX(c), worldZ(r), col); revealed++;
+  }
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.95, 36), new THREE.MeshBasicMaterial({ color: 0xaad8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(player.pos.x, 0.25, player.pos.z); world.add(ring);
+  pingMarks.push({ mesh: ring, life: 0.7, max: 0.7, grow: R * TS / 0.9 });
+  AUDIO.ping(); shake(0.05, 0.12);
+  return revealed;
+}
+function addRevealMark(x, z, col) {
+  if (pingMarks.length > 90) return;
+  const g = new THREE.Group();
+  const pin = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending }));
+  pin.position.y = 1.7; g.add(pin);
+  const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 1.4, 20), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.13; g.add(disc);
+  g.position.set(x, 0, z); world.add(g);
+  pingMarks.push({ mesh: g, life: 1.9, max: 1.9, rise: 1.1, spin: pin, disc });
+}
+function updatePingMarks(dt) {
+  for (let i = pingMarks.length - 1; i >= 0; i--) {
+    const m = pingMarks[i]; m.life -= dt; const f = Math.max(0, m.life / m.max);
+    if (m.grow) { const s = 1 + (1 - f) * m.grow; m.mesh.scale.set(s, 1, s); m.mesh.material.opacity = 0.85 * f; }
+    else { m.mesh.position.y += (m.rise || 0) * dt; if (m.spin) { m.spin.rotation.y += dt * 3; m.spin.material.opacity = 0.95 * f; } if (m.disc) m.disc.material.opacity = 0.5 * f; }
+    if (m.life <= 0) { world.remove(m.mesh); pingMarks.splice(i, 1); }
+  }
+}
+function shake(mag, dur) { if (!S.screenShake) return; shakeMag = Math.max(shakeMag, mag); shakeT = Math.max(shakeT, dur); }
+function updatePingHUD() {
+  const el = document.getElementById("hud-ping"); if (!el) return;
+  if (mode !== "maze" || diff().pings === 0) { el.textContent = ""; return; }
+  el.textContent = "◎ " + pings;
+}
+function updateTimerHUD() { const el = document.getElementById("hud-timer"); if (el) el.textContent = "⏱ " + (clock.elapsedTime - levelStartT).toFixed(1) + "s"; }
+function updateDashHUD() { const el = document.getElementById("dash-ind"); if (!el) return; const ready = dashCD <= 0; el.textContent = ready ? "⟫ DASH" : "⟫ " + Math.max(0, dashCD).toFixed(1); el.classList.toggle("ready", ready); }
+
+// transient particle burst (level-clear celebration / pickups)
+function spawnBurst(x, y, z, col, n) {
+  for (let i = 0; i < n && fx.length < 90; i++) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 1, blending: THREE.AdditiveBlending }));
+    m.position.set(x, y, z); world.add(m);
+    const a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 8;
+    fx.push({ m, v: new THREE.Vector3(Math.cos(a) * sp, 2 + Math.random() * 9, Math.sin(a) * sp), life: 1.0 });
+  }
+}
+function updateFx(dt) {
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const p = fx[i]; p.life -= dt; p.v.y -= 13 * dt; p.m.position.addScaledVector(p.v, dt);
+    p.m.material.opacity = Math.max(0, p.life); p.m.scale.multiplyScalar(Math.max(0.01, 1 - dt));
+    if (p.life <= 0) { world.remove(p.m); fx.splice(i, 1); }
+  }
+}
+
+// ───────────────────────── arena dodge dash ─────────────────────────
+function tryDash() {
+  if (mode !== "arena" || state !== "play" || dashCD > 0 || isSettingsOpen()) return false;
+  let ix = 0, iz = 0;
+  if (keys.KeyW || keys.ArrowUp) iz += 1; if (keys.KeyS || keys.ArrowDown) iz -= 1;
+  if (keys.KeyA || keys.ArrowLeft) ix -= 1; if (keys.KeyD || keys.ArrowRight) ix += 1;
+  if (isTouch) { ix += moveVec.x; iz -= moveVec.y; }
+  const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+  let dx, dz, l = Math.hypot(ix, iz);
+  if (l > 0.1) { ix /= l; iz /= l; dx = iz * sin - ix * cos; dz = iz * cos + ix * sin; } else { dx = sin; dz = cos; }
+  player.vel.x += dx * DASH_SPEED; player.vel.z += dz * DASH_SPEED;
+  dashCD = DASH_CD; player.invuln = DASH_IFRAME;
+  AUDIO.sfx("dash"); shake(0.1, 0.14);
+  return true;
 }
 
 // ───────────────────────── HUD / overlays ─────────────────────────
@@ -547,7 +670,7 @@ function backToMenu() {
   document.exitPointerLock?.();
   document.getElementById("combat").hidden = true;
   document.getElementById("intro").style.display = "";
-  if (isTouch && T.shoot) T.shoot.style.display = "none";
+  if (isTouch) { [T.shoot, T.dash, T.ping].forEach((b) => { if (b) b.style.display = "none"; }); }
 }
 HUD.msgPrimary.addEventListener("click", (e) => { e.stopPropagation(); runMsgPrimary(); });
 HUD.msgMenu.addEventListener("click", (e) => { e.stopPropagation(); backToMenu(); });
@@ -601,6 +724,24 @@ const AUDIO = (() => {
     else if (type === "hit") { o.type = "triangle"; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(120, t + 0.1); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.start(t); o.stop(t + 0.15); }
     else if (type === "boom") { o.type = "sawtooth"; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.4); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.32, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.start(t); o.stop(t + 0.52); }
     else if (type === "hurt") { o.type = "sawtooth"; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.18); g.gain.setValueAtTime(0.28, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2); o.start(t); o.stop(t + 0.22); }
+    else if (type === "dash") { o.type = "sawtooth"; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(560, t + 0.14); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2); o.start(t); o.stop(t + 0.22); }
+    else if (type === "heal") { o.type = "sine"; o.frequency.setValueAtTime(520, t); o.frequency.exponentialRampToValueAtTime(900, t + 0.18); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.start(t); o.stop(t + 0.32); }
+  }
+  // distinct death sound per trap type (maze)
+  function trapSnd(reason, t) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(sfxBus); let stop = t + 0.4;
+    if (reason === "spike") { o.type = "square"; o.frequency.setValueAtTime(900, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.08); g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18); stop = t + 0.2; }
+    else if (reason === "pit" || reason === "void") { o.type = "sine"; o.frequency.setValueAtTime(440, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.5); g.gain.setValueAtTime(0.28, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55); stop = t + 0.58; }
+    else if (reason === "launch") { o.type = "triangle"; o.frequency.setValueAtTime(200, t); o.frequency.exponentialRampToValueAtTime(820, t + 0.3); g.gain.setValueAtTime(0.26, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); stop = t + 0.36; }
+    else if (reason === "crush") { o.type = "sawtooth"; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.18); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); stop = t + 0.32; }
+    else { o.type = "sawtooth"; o.frequency.setValueAtTime(260, t); o.frequency.exponentialRampToValueAtTime(80, t + 0.3); g.gain.setValueAtTime(0.26, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); stop = t + 0.36; }
+    o.start(t); o.stop(stop);
+  }
+  function pingSnd(t) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(sfxBus);
+    o.type = "sine"; o.frequency.setValueAtTime(1400, t); o.frequency.exponentialRampToValueAtTime(620, t + 0.25);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    o.start(t); o.stop(t + 0.42);
   }
   return {
     start() { try { ensure(); if (ctx.state === "suspended") ctx.resume(); } catch {} },
@@ -609,6 +750,8 @@ const AUDIO = (() => {
     setVolume(v) { if (master && !muted) master.gain.setTargetAtTime(v, ctx.currentTime, 0.1); },
     setMusic(on) { if (musicBus) musicBus.gain.setTargetAtTime(on ? 1 : 0, ctx.currentTime, 0.1); },
     setSfx(on) { if (sfxBus) sfxBus.gain.setTargetAtTime(on ? 1 : 0, ctx.currentTime, 0.1); },
+    trap(reason) { if (ctx) trapSnd(reason, ctx.currentTime); },
+    ping() { if (ctx) pingSnd(ctx.currentTime); },
     sfx(type) { if (ctx) blip(type, ctx.currentTime); },
     step() { if (!ctx) return; const t = ctx.currentTime; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(115, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.08); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12); o.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + 0.13); },
     sting(type) {
@@ -685,9 +828,11 @@ function buildArena() {
   arena.spawn(worldX(cx), worldZ(cz));
   prevBossesLeft = arena.bossCount();
   player.pos.set(worldX(cx), 0, worldZ(cz)); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = 100;
+  pings = 0; pingMarks.length = 0; fx.length = 0; dashCD = 0; player.invuln = 0; shakeT = 0;
   document.getElementById("combat").hidden = false;
   HUD.level.textContent = "ARENA"; HUD.name.textContent = "Slay the bosses"; HUD.deaths.textContent = "";
-  updateCombatHUD(arena.bossCount());
+  const tEl = document.getElementById("hud-timer"); if (tEl) tEl.textContent = "";
+  updateCombatHUD(arena.bossCount()); updatePingHUD(); updateDashHUD();
   applyMobileLayout();
   state = "play"; hideMsg();
 }
@@ -713,7 +858,7 @@ function applySettings() {
   if (AUDIO) { AUDIO.setVolume(S.masterVol); AUDIO.setMusic(S.music); AUDIO.setSfx(S.sfx); }
   if (S.fov !== lastFov) { targetFov = S.fov; lastFov = S.fov; } BASE_FOV = S.fov;
   const vig = document.getElementById("vignette"); if (vig) vig.style.display = S.vignette ? "block" : "none";
-  applyMobileLayout();
+  applyMobileLayout(); updatePingHUD();
   resize();
 }
 
@@ -759,11 +904,17 @@ function frame() {
       stepDist += hspeed * dt;
       if (stepDist > 2.4) { stepDist = 0; AUDIO.step(); }    // footstep on each stride
     } else { stepDist = 2.4; }
-    camera.position.set(player.pos.x + swayX, player.pos.y + EYE + bobY, player.pos.z + swayZ);
+    // screen shake (decays over its lifetime)
+    let shx = 0, shy = 0, shz = 0, roll = 0;
+    if (shakeT > 0) { shakeT -= dt; const s = shakeMag * Math.min(1, shakeT * 5); shx = (Math.random() - 0.5) * s; shy = (Math.random() - 0.5) * s; shz = (Math.random() - 0.5) * s; roll = (Math.random() - 0.5) * s * 0.05; if (shakeT <= 0) shakeMag = 0; }
+    camera.position.set(player.pos.x + swayX + shx, player.pos.y + EYE + bobY + shy, player.pos.z + swayZ + shz);
     const dir = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch), Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
     camera.lookAt(camera.position.clone().add(dir));
+    if (roll) camera.rotateZ(roll);
     torch.position.copy(camera.position);
     for (const fn of dynamic) fn(t);
+    updatePingMarks(dt); updateFx(dt);
+    if (mode === "maze" && state === "play") updateTimerHUD();
     // pit slabs dropping
     world.traverse((m) => { if (m.userData && m.userData.dropping && m.position.y > -16) { m.position.y -= dt * 30; if (m.position.y < -15) m.visible = false; } });
     // arena combat — enemies, bosses, projectiles
@@ -774,8 +925,11 @@ function frame() {
         // leaderboard: award each boss destroyed (bossesLeft dropped this frame)
         if (res.changed && res.bossesLeft < prevBossesLeft) { const killed = prevBossesLeft - res.bossesLeft; addBossKill(killed); addPoints(killed * SCORE.bossKill); lbSubmit(); }
         prevBossesLeft = res.bossesLeft;
-        if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); updateCombatHUD(res.bossesLeft); if (player.hp <= 0) die("shot"); }
+        const dmg = player.invuln > 0 ? 0 : res.playerDamage;   // dash i-frames negate the hit
+        if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); shake(0.14, 0.16); updateCombatHUD(res.bossesLeft); if (player.hp <= 0) die("shot"); }
         else if (res.changed) updateCombatHUD(res.bossesLeft);
+        if (res.healCollected) { player.hp = Math.min(100, player.hp + res.healCollected); AUDIO.sfx("heal"); flash("rgba(40,210,120,0.45)"); spawnBurst(player.pos.x, EYE, player.pos.z, 0x45e07a, 8); updateCombatHUD(res.bossesLeft); }
+        updateDashHUD();
         if (res.win) winArena();
       }
     }
@@ -816,6 +970,12 @@ window.Trap = {
   toTile(r, c) { player.pos.set(worldX(c), 0, worldZ(r)); player.vel.set(0, 0, 0); player.grounded = true; },
   setKeys(obj) { Object.assign(keys, obj); },
   classifyTile(r, c) { return classify(tileAt(grid, r, c)); },
+  // gameplay hooks for tests
+  get pings() { return pings; }, get invuln() { return player.invuln; }, get dashCD() { return dashCD; },
+  ping() { return sonarPing(); },
+  dash() { return tryDash(); },
+  arenaDropHealth() { if (arena) arena.spawnHealthAt(player.pos.x + 1, player.pos.z); },
+  arenaKillDrones() { if (arena) arena.killDrones(); },
   // arena hooks for the smoke test
   fire,
   arenaInfo() { return arena ? arena.info() : null; },
@@ -823,10 +983,21 @@ window.Trap = {
   // deterministically advance the arena (the headless harness can't rely on rAF timing)
   arenaStep(dt) {
     if (mode !== "arena" || !arena) return player.hp;
+    if (player.invuln > 0) player.invuln -= dt; if (dashCD > 0) dashCD -= dt;
     const res = arena.update(dt, player.pos, camera, true);
-    if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
+    const dmg = player.invuln > 0 ? 0 : res.playerDamage;
+    if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); if (player.hp <= 0) die("shot"); }
+    if (res.healCollected) player.hp = Math.min(100, player.hp + res.healCollected);
     if (res.win) winArena();
     return player.hp;
+  },
+  // deterministic heal-pickup test: drop an orb on the player, advance once, return what happened
+  arenaHealTest() {
+    if (mode !== "arena" || !arena) return null;
+    player.hp = 50; arena.spawnHealthAt(player.pos.x, player.pos.z);
+    const res = arena.update(0.033, player.pos, camera, true);
+    if (res.healCollected) player.hp = Math.min(100, player.hp + res.healCollected);
+    return { collected: res.healCollected, hp: player.hp };
   },
   // deterministic mobile auto-aim loop (face the lock + fire + step) for the headless test
   arenaAutoStep(dt, godmode) {

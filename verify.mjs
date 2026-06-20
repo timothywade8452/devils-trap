@@ -183,6 +183,53 @@ if (booted) {
   ok(won.bosses === 0, "all bosses cleared");
   ok(won.state === "victory", `arena win triggers (state=${won.state})`);
   ok(errors.length === 0, "no console errors in arena" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
+
+  // ── PART D · new gameplay mechanics ──
+  console.log("\n=== PART D · gameplay (sonar / difficulty / dash / heal / best) ===");
+  // sonar ping reveals nearby traps + spends a charge (Normal = 3 charges)
+  const sonar = await page.evaluate(async () => {
+    const { S } = await import("./settings.js");
+    S.difficulty = "normal";
+    window.Trap.goto(4);                  // a dense-trap floor
+    const before = window.Trap.pings;
+    const revealed = window.Trap.ping();
+    return { before, revealed, after: window.Trap.pings };
+  });
+  ok(sonar.before === 3, `Normal gives 3 sonar charges (${sonar.before})`);
+  ok(sonar.revealed > 0, `sonar ping reveals nearby traps (${sonar.revealed})`);
+  ok(sonar.after === 2, `pinging spends a charge (${sonar.after})`);
+  // difficulty scales charges; Brutal removes them
+  const diffs = await page.evaluate(async () => {
+    const { S } = await import("./settings.js");
+    const out = {};
+    for (const d of ["casual", "normal", "brutal"]) { S.difficulty = d; window.Trap.goto(0); out[d] = window.Trap.pings; }
+    S.difficulty = "brutal"; window.Trap.goto(0); const brutalPing = window.Trap.ping();
+    return { out, brutalPing };
+  });
+  ok(diffs.out.casual === 5 && diffs.out.normal === 3 && diffs.out.brutal === 0, `charges by difficulty (C${diffs.out.casual}/N${diffs.out.normal}/B${diffs.out.brutal})`);
+  ok(diffs.brutalPing === 0, "Brutal has no sonar (ping does nothing)");
+  // per-floor best record saved on clear
+  const best = await page.evaluate(() => {
+    window.Trap.goto(0); const L = window.Trap.LEVELS[0];
+    window.Trap.toTile(L.goal.r, L.goal.c); window.Trap.step(0.05);   // clear floor 1
+    return JSON.parse(localStorage.getItem("devilstrap_pb_v1") || "{}");
+  });
+  ok(best["0"] && typeof best["0"].time === "number", "per-floor best record saved on clear");
+  // dodge dash: arena-only, sets i-frames + cooldown
+  const dash = await page.evaluate(() => {
+    window.Trap.startArena();
+    const ok1 = window.Trap.dash();
+    const inv = window.Trap.invuln, cd = window.Trap.dashCD;
+    window.Trap.goto(0);                  // back to maze
+    const ok2 = window.Trap.dash();       // should be refused in maze
+    return { ok1, inv, cd, ok2 };
+  });
+  ok(dash.ok1 === true && dash.inv > 0 && dash.cd > 0, "dash works in arena (i-frames + cooldown)");
+  ok(dash.ok2 === false, "dash is disabled in the maze");
+  // health pickup drops from drones + heals on contact
+  const heal = await page.evaluate(() => { window.Trap.startArena(); return window.Trap.arenaHealTest(); });
+  ok(heal && heal.collected === 20 && heal.hp === 70, `health pickup heals on contact (+${heal && heal.collected} → ${heal && heal.hp})`);
+  ok(errors.length === 0, "no console errors in gameplay tests" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
 }
 
 await browser.close();

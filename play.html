@@ -11,13 +11,13 @@
 
   <!-- HUD -->
   <div id="hud">
-    <div id="hud-left"><span id="hud-level">LV 1/30</span><span id="hud-name">The Threshold</span></div>
+    <div id="hud-left"><span id="hud-level">LV 1/30</span><span id="hud-name">The Threshold</span><span id="hud-ping"></span><span id="hud-timer"></span></div>
     <div id="hud-right"><span id="hud-zoom"></span><span id="hud-deaths">☠ 0</span><button id="lbbtn" title="Leaderboard">🏆</button><button id="mutebtn" title="Mute / unmute music (M)">🔊</button><button id="gearbtn" title="Settings (P)">⚙</button></div>
   </div>
   <!-- arena combat HUD (hidden in maze mode) -->
   <div id="combat" hidden>
     <div id="hp-wrap"><div id="hp-fill"></div><span id="hp-text">100</span></div>
-    <div id="combat-right"><span id="ammo">●●●●●●</span><span id="boss-count">BOSSES 3</span></div>
+    <div id="combat-right"><span id="dash-ind" class="ready">⟫ DASH</span><span id="ammo">●●●●●●</span><span id="boss-count">BOSSES 3</span></div>
   </div>
   <div id="crosshair">+</div>
   <div id="flash"></div>
@@ -30,13 +30,14 @@
       <p class="tag">A first-person rage-bait maze. The floor is a liar.</p>
       <p class="rules">Walk to the <b>glowing orb</b>. That's the only exit — the doors are decorative.
       Every other tile <i>looks</i> like solid floor. Most of them aren't. You will die. You will
-      memorize. The traps never move, so what kills you once teaches you forever. A shaft of light marks
-      the exit — find the safe path to it. <b>30 floors</b> across three descents.</p>
+      memorize. The traps never move, so what kills you once teaches you forever. Stuck? Spend a
+      <b>sonar ping</b> (F) to flash nearby traps. <b>30 floors</b> across three descents — pick Casual,
+      Normal or Brutal in ⚙ Settings.</p>
       <button id="play-btn">CLICK TO ENTER</button>
       <button id="arena-btn" class="ghost">⚔ ARENA MODE</button>
       <button id="lb-btn" class="ghost">🏆 LEADERBOARD</button>
-      <p class="ctrl" id="ctrl-desktop"><b>WASD / arrows</b> move · <b>shift</b> sprint · <b>mouse</b> look · <b>space</b> jump · <b>scroll / +−</b> zoom · <b>R</b> restart · <b>M</b> music · <b>⚙</b> settings</p>
-      <p class="ctrl" id="ctrl-touch"><b>Joystick</b> move · <b>drag</b> to look · <b>JUMP / RUN</b> · in Arena just <b>hold FIRE</b> — it auto-aims the nearest enemy · <b>⚙</b> settings &amp; layout</p>
+      <p class="ctrl" id="ctrl-desktop"><b>WASD</b> move · <b>shift</b> sprint · <b>mouse</b> look · <b>space</b> jump · <b>F</b> sonar scout · <b>double-tap</b> to dash (arena) · <b>scroll</b> zoom · <b>R</b> restart · <b>⚙</b> settings</p>
+      <p class="ctrl" id="ctrl-touch"><b>Joystick</b> move · <b>drag</b> to look · <b>JUMP / RUN</b> · <b>PING</b> scouts nearby traps · in Arena <b>hold FIRE</b> auto-aims &amp; <b>DASH</b> dodges · <b>⚙</b> settings</p>
     </div>
   </div>
 
@@ -61,6 +62,8 @@
     <div id="jumpbtn" class="tbtn">JUMP</div>
     <div id="sprintbtn" class="tbtn">RUN</div>
     <div id="shootbtn" class="tbtn">FIRE</div>
+    <div id="pingbtn" class="tbtn">PING</div>
+    <div id="dashbtn" class="tbtn">DASH</div>
   </div>
 
   <script type="importmap">

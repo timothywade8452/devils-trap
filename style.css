@@ -21,6 +21,10 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 #hud-name { opacity: .85; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
 #hud-right { color: var(--red); font-size: 18px; display: flex; align-items: center; gap: 12px; pointer-events: auto; flex-shrink: 0; }
 #hud-zoom { color: var(--blue); font-size: 14px; font-weight: 700; opacity: .9; }
+#hud-ping { color: #9fd0ff; font-size: 14px; font-weight: 800; }
+#hud-timer { color: var(--ink); opacity: .75; font-size: 14px; font-weight: 700; }
+#dash-ind { font-size: 13px; font-weight: 800; color: #c89cff; opacity: .7; }
+#dash-ind.ready { color: #c89cff; opacity: 1; }
 #mutebtn { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); box-shadow: none;
   min-width: 44px; min-height: 44px; padding: 4px 9px; border-radius: 10px; font-size: 18px; line-height: 1;
   letter-spacing: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
@@ -105,10 +109,12 @@ body.is-touch #ammo { font-size: 15px; }
   border: 1px solid rgba(255,255,255,.22); color: #fff; font-size: 18px; padding: 0; box-shadow: none; }
 #dpad [data-dir=up] { left: 52px; top: 0; } #dpad [data-dir=down] { left: 52px; bottom: 0; }
 #dpad [data-dir=left] { left: 0; top: 52px; } #dpad [data-dir=right] { right: 0; top: 52px; }
-#jumpbtn, #sprintbtn, #shootbtn { width: 90px; height: 90px; border-radius: 50%; font-size: 13px; }
+#jumpbtn, #sprintbtn, #shootbtn, #pingbtn, #dashbtn { width: 90px; height: 90px; border-radius: 50%; font-size: 13px; }
 #jumpbtn { background: rgba(255,90,60,.3); border: 2px solid rgba(255,120,90,.6); }
 #sprintbtn { background: rgba(90,160,255,.26); border: 2px solid rgba(120,180,255,.55); }
 #shootbtn { background: rgba(110,255,160,.26); border: 2px solid rgba(140,255,180,.6); display: none; }
+#pingbtn { background: rgba(120,200,255,.26); border: 2px solid rgba(150,215,255,.6); display: none; }
+#dashbtn { background: rgba(200,140,255,.26); border: 2px solid rgba(215,160,255,.6); display: none; }
 
 #arena-btn { margin-top: 12px; }
 #intro .ghost, #msg-inner .ghost { background: transparent; border: 2px solid rgba(255,255,255,.25); box-shadow: none; color: var(--ink); }
