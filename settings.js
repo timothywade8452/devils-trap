@@ -11,7 +11,7 @@ export const DEFAULTS = {
   // video
   brightness: 1.05, bloom: 0.8, quality: "high", vignette: true,
   // gameplay
-  moveSpeed: 1.0, sensitivity: 1.0, fov: 75, invertY: false, viewBob: true,
+  moveSpeed: 1.0, sensitivity: 1.0, fov: 75, invertY: false, viewBob: true, autoAim: true,
   // mobile controls
   mScheme: "stick", mOpacity: 0.85, mScale: 1.0, mHanded: "right",
   mLayout: {},        // { stick:{x,y}, jump:{x,y}, shoot:{x,y}, sprint:{x,y} } in px from bottom-left
@@ -107,6 +107,7 @@ function buildPanel(isTouch) {
   sections.game.appendChild(slider("Field of view", "fov", 60, 100, 1, (v) => Math.round(v) + "°"));
   sections.game.appendChild(toggle("Invert vertical look", "invertY"));
   sections.game.appendChild(toggle("View bob", "viewBob"));
+  sections.game.appendChild(toggle("Aim assist (arena auto-target)", "autoAim"));
   // mobile
   if (isTouch) {
     sections.mobile.appendChild(choice("Move control", "mScheme", [["stick", "Joystick"], ["dpad", "D-Pad"]]));

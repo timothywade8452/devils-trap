@@ -158,6 +158,19 @@ if (booted) {
   ok(afterRun.maxEnemy > 0, `bosses/drones fire projectiles (${afterRun.maxEnemy} in flight)`);
   ok(afterRun.hp < 100, `enemy fire damages the player (HP ${afterRun.hp})`);
 
+  // AIM ASSIST (mobile): without manual aiming, holding fire auto-locks + damages enemies
+  const assist = await page.evaluate(() => {
+    window.Trap.startArena();
+    for (let i = 0; i < 5; i++) window.Trap.arenaStep(0.033);   // let a lock acquire
+    const locked = window.Trap.arenaInfo().lock;
+    const hp0 = window.Trap.arenaInfo().bossHp;
+    let dropped = 0;
+    for (let i = 0; i < 150 && window.Trap.state === "play"; i++) { const inf = window.Trap.arenaAutoStep(0.033); dropped = hp0 - inf.bossHp; }
+    return { locked, hp0, dropped };
+  });
+  ok(assist.locked, "auto-aim acquires a target lock");
+  ok(assist.dropped > 80, `auto-aim alone damages enemies without manual aiming (-${Math.round(assist.dropped)} boss HP)`);
+
   // fresh arena, kill all bosses through the real death/win pipeline
   const won = await page.evaluate(() => {
     window.Trap.startArena();        // reset: full HP, 3 bosses, state=play

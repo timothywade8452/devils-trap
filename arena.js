@@ -31,6 +31,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
 
   const bosses = [], drones = [], pProj = [], eProj = [], parts = [];
   let centerX = 0, centerZ = 0, droneTimer = 0, colorIx = 0, prevBosses = -1;
+  let lockObj = null, lockRing = null;   // auto-aim target lock + its on-target reticle
 
   const HALF = () => (bounds.maxX - bounds.minX) / 2;
   const clampX = (x) => Math.max(bounds.minX + 1.5, Math.min(bounds.maxX - 1.5, x));
@@ -137,6 +138,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   function spawn(cx, cz) {
     if (!g.parent) scene.add(g);
     clearGroup();
+    lockObj = null; lockRing = null;       // ring was a child of g, just cleared — rebuilt on next update
     centerX = cx; centerZ = cz; droneTimer = 1.5; prevBosses = -1;
     const orbit = Math.min(HALF() - 12, 58);
     for (let i = 0; i < 3; i++) {
@@ -184,7 +186,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     const m = new THREE.Mesh(SPH, bubbleMat(col)); m.scale.setScalar(0.55);
     m.position.copy(origin); g.add(m);
     const h = halo(col, 2.2, 0.6); m.add(h);
-    pProj.push({ m, vel: dir.clone().normalize().multiplyScalar(78), life: 2.6, dmg: 18, col });
+    pProj.push({ m, vel: dir.clone().normalize().multiplyScalar(115), life: 2.6, dmg: 18, col });
     muzzle(origin, col, 0.7);
   }
 
@@ -220,7 +222,56 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   }
 
   function bossCount() { return bosses.length; }
-  function info() { return { bosses: bosses.length, drones: drones.length, playerProjectiles: pProj.length, enemyProjectiles: eProj.length }; }
+  function info() { return { bosses: bosses.length, drones: drones.length, playerProjectiles: pProj.length, enemyProjectiles: eProj.length, lock: !!lockObj, bossHp: bosses.reduce((s, b) => s + Math.max(0, b.hp), 0) }; }
+
+  // ── auto-aim target lock (mobile can't aim with a third thumb, so we lock the nearest threat) ──
+  function ensureLockRing() {
+    if (lockRing) return;
+    lockRing = new THREE.Mesh(new THREE.RingGeometry(0.82, 1.0, 32),
+      new THREE.MeshBasicMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthTest: false, side: THREE.DoubleSide }));
+    lockRing.renderOrder = 996; lockRing.visible = false;
+  }
+  const objPos = (o) => (o.grp ? o.grp.position : o.m.position);
+  const _v = new THREE.Vector3(), _camDir = new THREE.Vector3();
+  function acquireTarget(camera, playerPos) {
+    camera.getWorldDirection(_camDir); _camDir.y = 0; _camDir.normalize();
+    let best = null, bestScore = Infinity;
+    const consider = (obj, isBoss) => {
+      _v.copy(objPos(obj)).sub(playerPos); const dist = _v.length(); if (dist < 0.01) return;
+      _v.y = 0; _v.normalize();
+      const front = Math.max(0, _v.dot(_camDir));               // 1 = dead ahead
+      // bosses strongly preferred (they're the win condition + sit far away); proximity + facing still matter
+      const score = dist * (isBoss ? 0.3 : 1) * (1.3 - 0.4 * front);
+      if (score < bestScore) { bestScore = score; best = obj; }
+    };
+    for (const b of bosses) consider(b, true);
+    for (const d of drones) consider(d, false);
+    return best;
+  }
+  function nearestDroneWithin(playerPos, maxd) {
+    let best = null, bd = maxd;
+    for (const d of drones) { const dist = objPos(d).distanceTo(playerPos); if (dist < bd) { bd = dist; best = d; } }
+    return best;
+  }
+  function updateLock(camera, playerPos) {
+    ensureLockRing(); if (!lockRing.parent) g.add(lockRing);
+    // drop a dead lock; keep a live one (hysteresis) so the reticle doesn't jitter between enemies
+    if (lockObj && !(bosses.includes(lockObj) || drones.includes(lockObj))) lockObj = null;
+    // emergency override — a drone right in your face takes priority over chipping a far boss
+    const threat = nearestDroneWithin(playerPos, 11);
+    if (threat) lockObj = threat;
+    else if (!lockObj) lockObj = acquireTarget(camera, playerPos);
+    if (lockObj) {
+      const isBoss = !!lockObj.grp, p = objPos(lockObj);
+      lockRing.visible = true; lockRing.position.copy(p);
+      const base = isBoss ? 7.5 : 2.6, pulse = base * (1 + 0.09 * Math.sin(performance.now() * 0.007));
+      lockRing.scale.setScalar(pulse); lockRing.quaternion.copy(camera.quaternion);
+      lockRing.material.color.setHex(isBoss ? 0xff6a6a : 0xffe04a);
+    } else lockRing.visible = false;
+  }
+  // aim point the engine fires at / steers toward (lead the centre of mass), or null
+  function lockedPos() { if (!lockObj) return null; return objPos(lockObj).clone(); }
+  function hasLock() { return !!lockObj; }
 
   const tmp = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
@@ -334,7 +385,15 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     for (let i = drones.length - 1; i >= 0; i--) {
       const d = drones[i]; d.bob += dt * 4;
       tmp.copy(playerPos).sub(d.m.position); tmp.y = 0; const dist = tmp.length();
-      if (live && dist > 8) { tmp.normalize(); d.m.position.x = clampX(d.m.position.x + tmp.x * dt * 9); d.m.position.z = clampZ(d.m.position.z + tmp.z * dt * 9); }
+      if (live) {
+        tmp.normalize();
+        // hover at a mid radius (~18): close in if far, back off if too near, otherwise strafe sideways
+        let mvx = 0, mvz = 0;
+        if (dist > 20) { mvx = tmp.x; mvz = tmp.z; }
+        else if (dist < 15) { mvx = -tmp.x; mvz = -tmp.z; }
+        else { mvx = -tmp.z; mvz = tmp.x; }   // perpendicular strafe
+        d.m.position.x = clampX(d.m.position.x + mvx * dt * 8); d.m.position.z = clampZ(d.m.position.z + mvz * dt * 8);
+      }
       d.m.position.y = 2.4 + Math.sin(d.bob) * 0.4; d.m.rotation.y += dt * 2;
 
       d.flash = Math.max(0, d.flash - dt);
@@ -364,7 +423,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       const p = pProj[i]; p.m.position.addScaledVector(p.vel, dt); p.life -= dt;
       let hit = false;
       for (let j = bosses.length - 1; j >= 0; j--) {
-        const b = bosses[j]; if (p.m.position.distanceTo(b.grp.position) < 5) {
+        const b = bosses[j]; if (p.m.position.distanceTo(b.grp.position) < 6.5) {
           b.hp -= p.dmg; b.flash = Math.max(b.flash, 0.22);   // flinch/flash
           // small knock-back along incoming direction
           b.ang += (p.vel.x >= 0 ? 1 : -1) * 0.01;
@@ -416,6 +475,9 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       if (p.life <= 0) { g.remove(p.m); parts.splice(i, 1); }
     }
 
+    // maintain the auto-aim lock + reticle (uses the freshly-moved enemy positions)
+    updateLock(camera, playerPos);
+
     const bossesLeft = bosses.length;
     const changed = bossesLeft !== prevBosses; prevBosses = bossesLeft;
     return { playerDamage, bossesLeft, win: bossesLeft === 0, changed };
@@ -431,5 +493,5 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   }
 
   function damageAll(n) { for (const b of bosses) b.hp -= n; }   // test hook for the win pipeline
-  return { spawn, update, playerShoot, bossCount, info, damageAll };
+  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, hasLock };
 }

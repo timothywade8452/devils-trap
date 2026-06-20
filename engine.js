@@ -626,10 +626,28 @@ function fire() {
   const now = clock.elapsedTime;
   if (now - lastShot < 0.2) return;
   lastShot = now;
-  const dir = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch), Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
-  const origin = new THREE.Vector3(player.pos.x, player.pos.y + EYE - 0.25, player.pos.z).addScaledVector(dir, 1.4);
+  const eye = new THREE.Vector3(player.pos.x, player.pos.y + EYE - 0.25, player.pos.z);
+  let dir = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch), Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
+  // aim assist: fire straight at the locked enemy — full lock on touch (no 3rd thumb to aim),
+  // gentle ~42° magnetism on desktop so near-misses still connect.
+  if (S.autoAim) {
+    const lp = arena.lockedPos();
+    if (lp) { const toLock = lp.sub(eye).normalize(); if (isTouch || dir.dot(toLock) > 0.74) dir = toLock; }
+  }
+  const origin = eye.clone().addScaledVector(dir, 1.4);
   arena.playerShoot(origin, dir);
   AUDIO.sfx("shoot");
+}
+// On touch there's no thumb left to aim — while FIRE is held, smoothly swing the view to face
+// the auto-locked enemy so the player just drives + holds fire.
+function steerToLock(dt) {
+  const lp = arena && arena.lockedPos && arena.lockedPos(); if (!lp) return;
+  const dx = lp.x - player.pos.x, dy = lp.y - (player.pos.y + EYE), dz = lp.z - player.pos.z;
+  let dYaw = Math.atan2(dx, dz) - player.yaw;
+  while (dYaw > Math.PI) dYaw -= 2 * Math.PI; while (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+  const wantPitch = Math.atan2(dy, Math.hypot(dx, dz)), k = Math.min(1, dt * 9);
+  player.yaw += dYaw * k;
+  player.pitch += (clamp(wantPitch, -1.3, 1.3) - player.pitch) * k;
 }
 
 function buildArena() {
@@ -709,6 +727,8 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta()); const t = clock.elapsedTime;
   if (!window.__noRender) {
     tick(dt);
+    // touch aim-assist: face the locked enemy while firing
+    if (mode === "arena" && isTouch && S.autoAim && shootHeld && state === "play") steerToLock(dt);
     // smooth zoom toward target FOV
     if (Math.abs(camera.fov - targetFov) > 0.01) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 12); camera.updateProjectionMatrix(); updateZoomHUD(); }
     // camera follow + subtle view-bob while walking (immersion, render-only)
@@ -781,6 +801,16 @@ window.Trap = {
     if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
     if (res.win) winArena();
     return player.hp;
+  },
+  // deterministic mobile auto-aim loop (face the lock + fire + step) for the headless test
+  arenaAutoStep(dt) {
+    if (mode !== "arena" || !arena || state !== "play") return this.arenaInfo();
+    lastShot = clock.elapsedTime - 1;   // bypass real-time cooldown (clock doesn't advance in a sync test loop)
+    steerToLock(dt); shootHeld = true; fire();
+    const res = arena.update(dt, player.pos, camera, true);
+    if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
+    if (res.win) winArena();
+    return this.arenaInfo();
   },
 };
 window.dispatchEvent(new Event("trap-ready"));
