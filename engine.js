@@ -150,6 +150,7 @@ const HUD = {
   deaths: document.getElementById("hud-deaths"), msg: document.getElementById("msg"),
   msgTitle: document.getElementById("msg-title"), msgSub: document.getElementById("msg-sub"),
   msgHint: document.getElementById("msg-hint"), flash: document.getElementById("flash"),
+  msgPrimary: document.getElementById("msg-primary"), msgMenu: document.getElementById("msg-menu"),
 };
 
 function worldX(c) { return c * TS; }
@@ -240,7 +241,9 @@ function die(reason) {
   state = "dead"; deaths++; totalDeaths++;
   flash("#c01010"); AUDIO.sting("die");
   const pool = TAUNTS[reason] || TAUNTS.void;
-  showMsg("YOU DIED", pool[Math.floor(Math.random() * pool.length)], "Press  R  or click to try again  ·  death #" + deaths);
+  const label = mode === "arena" ? "FIGHT AGAIN" : "RETRY";
+  showMsg("YOU DIED", pool[Math.floor(Math.random() * pool.length)],
+    "death #" + deaths + "  ·  R / Space to retry", { label });
   updateHUD();
 }
 
@@ -249,11 +252,13 @@ function winLevel() {
   flash("#10c040"); AUDIO.sting("win");
   if (levelIdx + 1 >= LEVELS.length) {
     state = "victory";
-    showMsg("YOU ESCAPED", "All 10 levels. The Devil is impressed.", "Total deaths: " + totalDeaths + "  ·  click for a victory lap");
+    showMsg("YOU ESCAPED", "All " + LEVELS.length + " floors. The Devil is impressed.",
+      "Total deaths: " + totalDeaths + "  ·  Space to replay", { label: "PLAY AGAIN", clear: true });
   } else {
     state = "win";
     const next = LEVELS[levelIdx + 1];
-    showMsg("LEVEL " + (levelIdx + 1) + " CLEAR", next.taunt, "Next: " + next.name + "  ·  press  Space  or click");
+    showMsg("LEVEL " + (levelIdx + 1) + " CLEAR", next.taunt,
+      "Next: " + next.name + "  ·  Space to continue", { label: "NEXT FLOOR", clear: true });
   }
 }
 
@@ -305,16 +310,22 @@ const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in win
 let moveVec = { x: 0, y: 0 }, touchSprint = false, shootHeld = false, editLayout = false;
 const T = {};   // cached DOM refs
 
+function safeInset(side) {            // read the CSS env(safe-area-inset-*) value in px (notch / home indicator)
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--safe-" + side);
+  const n = parseFloat(v); return Number.isFinite(n) ? n : 0;
+}
 function defaultPos(ctrl) {            // [left, bottom] in px; move control opposite the action cluster
+  const sl = safeInset("l"), sr = safeInset("r"), sb = safeInset("b");
   const w = innerWidth, moveLeft = S.mHanded === "right", m = 26;
-  const actX = moveLeft ? w - 116 : m, oppX = moveLeft ? m : w - 116;
+  const ml = m + sl, mr = m + sr, mb = m + sb;     // keep clear of notches / home indicator
+  const actX = moveLeft ? w - 116 - sr : ml, oppX = moveLeft ? ml : w - 116 - sr;
   switch (ctrl) {
-    case "move":   return moveLeft ? [m, m] : [w - 158, m];
-    case "jump":   return [actX, m + 6];
-    case "sprint": return moveLeft ? [actX - 104, m + 6] : [actX + 104, m + 6];
-    case "shoot":  return [actX, m + 116];
+    case "move":   return moveLeft ? [ml, mb] : [w - 158 - sr, mb];
+    case "jump":   return [actX, mb + 6];
+    case "sprint": return moveLeft ? [actX - 104, mb + 6] : [actX + 104, mb + 6];
+    case "shoot":  return [actX, mb + 116];
   }
-  return [m, m];
+  return [ml, mb];
 }
 function applyMobileLayout() {
   if (!isTouch) return;
@@ -336,6 +347,7 @@ function setupTouch() {
   T.touch = document.getElementById("touch"); T.stick = document.getElementById("stick"); T.nub = document.getElementById("nub");
   T.dpad = document.getElementById("dpad"); T.jump = document.getElementById("jumpbtn"); T.sprint = document.getElementById("sprintbtn"); T.shoot = document.getElementById("shootbtn");
   if (!isTouch) return;
+  document.body.classList.add("is-touch");   // unlocks touch-only CSS (top combat HUD, touch ctrl hint)
   T.touch.style.display = "block";
   applyMobileLayout();
 
@@ -505,8 +517,38 @@ function springVisual(ch, r, c) {
 
 // ───────────────────────── HUD / overlays ─────────────────────────
 function updateHUD() { if (mode === "arena") return; const L = LEVELS[levelIdx]; HUD.level.textContent = "LV " + (levelIdx + 1) + "/" + LEVELS.length; HUD.name.textContent = L.name; HUD.deaths.textContent = "☠ " + deaths; }
-function showMsg(title, sub, hint) { HUD.msgTitle.textContent = title; HUD.msgSub.textContent = sub; HUD.msgHint.textContent = hint; HUD.msg.classList.add("show"); }
+// showMsg(title, sub, hint, opts) — opts.label sets the primary button text, opts.clear styles it green,
+// opts.action is the primary tap action (defaults to the state-driven respawn/advance). MENU is always shown.
+function showMsg(title, sub, hint, opts = {}) {
+  HUD.msgTitle.textContent = title; HUD.msgSub.textContent = sub; HUD.msgHint.textContent = hint || "";
+  HUD.msgTitle.classList.toggle("clear", !!opts.clear);
+  HUD.msgPrimary.textContent = opts.label || "RETRY";
+  HUD.msgPrimary.classList.toggle("clear", !!opts.clear);
+  msgPrimaryAction = opts.action || null;
+  HUD.msg.classList.add("show");
+}
 function hideMsg() { HUD.msg.classList.remove("show"); }
+// the primary overlay button runs this if set, else falls back to the canvas/state default (respawn/advance)
+let msgPrimaryAction = null;
+function runMsgPrimary() { if (msgPrimaryAction) msgPrimaryAction(); else if (state === "dead") respawn(); else if (state === "win" || state === "victory") advance(); }
+// back-to-menu: show the intro overlay, drop combat HUD, release pointer-lock, reset to menu state
+function backToMenu() {
+  state = "menu";
+  hideMsg();
+  document.exitPointerLock?.();
+  document.getElementById("combat").hidden = true;
+  document.getElementById("intro").style.display = "";
+  if (isTouch && T.shoot) T.shoot.style.display = "none";
+}
+HUD.msgPrimary.addEventListener("click", (e) => { e.stopPropagation(); runMsgPrimary(); });
+HUD.msgMenu.addEventListener("click", (e) => { e.stopPropagation(); backToMenu(); });
+// tapping the overlay background (not a button) still triggers the primary action, matching the old behaviour
+HUD.msg.addEventListener("click", (e) => { if (e.target === HUD.msg || e.target.classList.contains("msg-inner")) runMsgPrimary(); });
+// swallow touch on the buttons so the tap never falls through to the canvas look-handler underneath
+["touchstart", "touchend"].forEach((ev) => {
+  HUD.msgPrimary.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+  HUD.msgMenu.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+});
 let flashT = 0;
 function flash(color) { HUD.flash.style.background = color; HUD.flash.style.opacity = "0.55"; flashT = 0.4; }
 
@@ -618,7 +660,7 @@ function buildArena() {
   state = "play"; hideMsg();
 }
 function startArena() { document.getElementById("intro").style.display = "none"; AUDIO.start(); buildArena(); if (!isTouch) canvas.requestPointerLock(); }
-function winArena() { if (state !== "play") return; state = "victory"; flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Click or Space to fight again"); }
+function winArena() { if (state !== "play") return; state = "victory"; flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Space to fight again", { label: "FIGHT AGAIN", clear: true }); }
 function updateCombatHUD(bossesLeft) {
   const hp = Math.max(0, player.hp);
   document.getElementById("hp-fill").style.width = hp + "%";
@@ -718,6 +760,7 @@ window.Trap = {
   get player() { return player; }, LEVELS, TS,
   start: startGame,
   startArena,
+  backToMenu,
   openSettings,
   toggleMute,
   goto(i) { mode = "maze"; document.getElementById("combat").hidden = true; document.getElementById("intro").style.display = "none"; buildLevel(i); },

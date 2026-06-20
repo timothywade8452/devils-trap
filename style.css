@@ -1,19 +1,29 @@
-:root { --ink: #e9ecf5; --red: #ff3b2e; --blue: #9fd4ff; --bg: #06070c; }
+:root { --ink: #e9ecf5; --red: #ff3b2e; --blue: #9fd4ff; --bg: #06070c;
+  --green: #45e07a; --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: "Segoe UI", system-ui, sans-serif; }
-body.game { overflow: hidden; cursor: crosshair; }
-#c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+body.game { overflow: hidden; cursor: crosshair; overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none; touch-action: none; }
+/* no long-press text selection / blue highlight on any touch UI */
+#hud, #combat, #intro, #msg, #touch, .set-panel { -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+#c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
 
 /* HUD */
-#hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; padding: 14px 18px;
+#hud { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start;
+  padding: calc(12px + var(--safe-t)) calc(16px + var(--safe-r)) 12px calc(16px + var(--safe-l)); gap: 10px;
   font-weight: 800; letter-spacing: .5px; pointer-events: none; text-shadow: 0 2px 6px #000; z-index: 5; }
+#hud-left { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; }
 #hud-left span { margin-right: 14px; }
 #hud-level { color: var(--blue); }
-#hud-name { opacity: .85; font-weight: 600; }
-#hud-right { color: var(--red); font-size: 18px; display: flex; align-items: center; gap: 14px; pointer-events: auto; }
+#hud-name { opacity: .85; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
+#hud-right { color: var(--red); font-size: 18px; display: flex; align-items: center; gap: 12px; pointer-events: auto; flex-shrink: 0; }
 #hud-zoom { color: var(--blue); font-size: 14px; font-weight: 700; opacity: .9; }
 #mutebtn { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); box-shadow: none;
-  padding: 4px 9px; border-radius: 8px; font-size: 16px; line-height: 1; letter-spacing: 0; cursor: pointer; }
+  min-width: 44px; min-height: 44px; padding: 4px 9px; border-radius: 10px; font-size: 18px; line-height: 1;
+  letter-spacing: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 #mutebtn:hover { background: rgba(255,255,255,.16); filter: none; }
 #crosshair { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: rgba(255,255,255,.6);
   font-size: 22px; pointer-events: none; z-index: 5; text-shadow: 0 0 4px #000; }
@@ -24,7 +34,9 @@ body.game { overflow: hidden; cursor: crosshair; }
 
 /* overlays */
 #intro, #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 10;
-  background: radial-gradient(circle at 50% 40%, rgba(20,8,8,.72), rgba(3,3,6,.94)); padding: 24px; }
+  background: radial-gradient(circle at 50% 40%, rgba(20,8,8,.72), rgba(3,3,6,.94));
+  padding: calc(24px + var(--safe-t)) calc(24px + var(--safe-r)) calc(24px + var(--safe-b)) calc(24px + var(--safe-l));
+  overflow-y: auto; }
 #msg { opacity: 0; pointer-events: none; transition: opacity .18s; }
 #msg.show { opacity: 1; pointer-events: auto; cursor: pointer; }
 .card, .msg-inner { max-width: 720px; text-align: center; }
@@ -37,19 +49,43 @@ h1 { font-size: clamp(40px, 8vw, 78px); font-weight: 900; letter-spacing: 2px; l
 button, #play-btn { font: inherit; font-weight: 900; letter-spacing: 2px; padding: 14px 34px; border: 0; border-radius: 10px;
   background: linear-gradient(180deg, #ff5a3c, #c01b0e); color: #fff; cursor: pointer; box-shadow: 0 8px 30px rgba(255,60,40,.4); }
 button:hover { filter: brightness(1.1); }
+#play-btn, #arena-btn { display: block; width: min(360px, 100%); margin-left: auto; margin-right: auto;
+  min-height: 56px; font-size: 17px; }
 .ctrl { margin-top: 20px; font-size: 12.5px; opacity: .6; letter-spacing: .3px; }
 .ctrl b { color: var(--ink); }
+/* show touch-appropriate guidance on touch devices, desktop keys otherwise */
+#ctrl-touch { display: none; }
+body.is-touch #ctrl-desktop { display: none; }
+body.is-touch #ctrl-touch { display: block; }
 #msg-title { font-size: clamp(40px, 8vw, 74px); font-weight: 900; letter-spacing: 3px; color: var(--red); text-shadow: 0 0 40px rgba(255,40,30,.5); }
 #msg.show #msg-title.clear { color: #45e07a; }
 #msg-sub { font-size: clamp(16px, 3vw, 22px); margin: 14px 0; opacity: .92; }
-#msg-hint { font-size: 13px; opacity: .6; letter-spacing: .4px; }
+#msg-hint { font-size: 13px; opacity: .6; letter-spacing: .4px; margin-top: 16px; }
 
-/* arena combat HUD */
-#combat { position: fixed; left: 0; right: 0; bottom: 16px; display: flex; justify-content: space-between; align-items: flex-end;
-  padding: 0 18px; z-index: 5; pointer-events: none; }
+/* overlay action buttons (primary path on touch; shortcuts still work on desktop) */
+#msg-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 26px; }
+.msg-btn { font-weight: 900; letter-spacing: 2px; min-height: 56px; min-width: 168px; padding: 16px 34px;
+  border-radius: 12px; font-size: clamp(15px, 4vw, 18px); cursor: pointer; touch-action: manipulation; }
+.msg-btn.primary { background: linear-gradient(180deg, #ff6a44, #c01b0e); color: #fff; border: 0;
+  box-shadow: 0 10px 34px rgba(255,60,40,.45); }
+.msg-btn.primary.clear { background: linear-gradient(180deg, #56ec8a, #1f9e4e); color: #04130a;
+  box-shadow: 0 10px 34px rgba(60,220,120,.4); }
+.msg-btn.ghost { background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.28); color: var(--ink); box-shadow: none; }
+.msg-btn:active { filter: brightness(1.12); transform: translateY(1px); }
+.msg-btn:hover { filter: brightness(1.1); }
+@media (max-width: 460px) { #msg-actions { flex-direction: column; align-items: stretch; gap: 12px; }
+  .msg-btn { width: 100%; min-width: 0; } }
+
+/* arena combat HUD — top-center on touch so it never collides with the joystick / fire buttons */
+#combat { position: fixed; left: 0; right: 0; bottom: calc(16px + var(--safe-b)); display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 0 calc(18px + var(--safe-r)) 0 calc(18px + var(--safe-l)); z-index: 5; pointer-events: none; }
 #combat[hidden] { display: none; }
 #hp-wrap { position: relative; width: 260px; max-width: 44vw; height: 20px; background: rgba(0,0,0,.55);
   border: 1px solid rgba(255,255,255,.28); border-radius: 11px; overflow: hidden; }
+/* on touch devices the joystick + FIRE live at the bottom — move the combat HUD up top so they never overlap */
+body.is-touch #combat { bottom: auto; top: calc(54px + var(--safe-t)); align-items: center; }
+body.is-touch #hp-wrap { height: 18px; max-width: 40vw; }
+body.is-touch #ammo { font-size: 15px; }
 #hp-fill { position: absolute; inset: 0 auto 0 0; width: 100%; background: linear-gradient(90deg, #ff3b2e, #ff9a3c); transition: width .15s; }
 #hp-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 900;
   letter-spacing: 1px; text-shadow: 0 1px 3px #000; }
@@ -79,17 +115,20 @@ button:hover { filter: brightness(1.1); }
 
 /* settings panel */
 #gearbtn { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18);
-  box-shadow: none; padding: 4px 9px; border-radius: 8px; font-size: 16px; line-height: 1; letter-spacing: 0; cursor: pointer; }
+  box-shadow: none; min-width: 44px; min-height: 44px; padding: 4px 9px; border-radius: 10px; font-size: 18px; line-height: 1;
+  letter-spacing: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 #gearbtn:hover { background: rgba(255,255,255,.16); filter: none; }
 .set-panel { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
-  background: rgba(3,3,7,.74); backdrop-filter: blur(4px); padding: 18px; }
+  background: rgba(3,3,7,.74); backdrop-filter: blur(4px);
+  padding: calc(14px + var(--safe-t)) calc(14px + var(--safe-r)) calc(14px + var(--safe-b)) calc(14px + var(--safe-l)); }
 .set-panel.show { display: flex; }
-.set-card { width: min(460px, 96vw); max-height: 90vh; overflow-y: auto; background: linear-gradient(180deg, #14161f, #0b0c12);
+.set-card { width: min(460px, 96vw); max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; touch-action: pan-y; background: linear-gradient(180deg, #14161f, #0b0c12);
   border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 20px 20px 16px; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
 .set-title { font-size: 22px; font-weight: 900; letter-spacing: 3px; text-align: center; color: var(--blue);
   text-shadow: none; background: none; -webkit-text-fill-color: var(--blue); margin-bottom: 14px; }
 .set-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
-.set-tab { flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: var(--ink);
+.set-tab { flex: 1; min-height: 44px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); color: var(--ink);
   box-shadow: none; padding: 9px 4px; border-radius: 9px; font-size: 13px; font-weight: 800; letter-spacing: .5px; cursor: pointer; }
 .set-tab.on { background: linear-gradient(180deg, #ff5a3c, #c01b0e); border-color: transparent; }
 .set-sec { display: none; } .set-sec.on { display: block; }
@@ -100,15 +139,15 @@ button:hover { filter: brightness(1.1); }
 .set-val { font-size: 13px; font-weight: 800; color: var(--blue); }
 .set-range { width: 100%; accent-color: #ff5a3c; height: 22px; }
 .set-toggle { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); box-shadow: none; color: var(--ink);
-  padding: 6px 16px; border-radius: 8px; font-size: 12px; font-weight: 800; letter-spacing: 1px; cursor: pointer; min-width: 64px; }
+  padding: 10px 18px; border-radius: 8px; font-size: 12px; font-weight: 800; letter-spacing: 1px; cursor: pointer; min-width: 72px; min-height: 44px; }
 .set-toggle.on { background: linear-gradient(180deg, #45e07a, #1f9e4e); border-color: transparent; color: #04130a; }
 .set-choice { display: flex; gap: 6px; }
 .set-chip { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); box-shadow: none; color: var(--ink);
-  padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  padding: 10px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; min-height: 44px; }
 .set-chip.on { background: linear-gradient(180deg, #6fb3ff, #2f6bd0); border-color: transparent; color: #04101e; }
 .set-hint { font-size: 12px; opacity: .55; margin-top: 10px; line-height: 1.5; }
 .set-foot { display: flex; gap: 10px; margin-top: 16px; }
-.set-btn { flex: 1; font-size: 13px; padding: 12px; border-radius: 10px; }
+.set-btn { flex: 1; font-size: 13px; padding: 14px; min-height: 48px; border-radius: 10px; }
 .set-btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,.2); box-shadow: none; color: var(--ink); }
 
 /* touch-control layout edit mode */
@@ -116,7 +155,8 @@ body.layout-edit #touch .tbtn { outline: 2px dashed var(--blue); }
 body.layout-edit::after { content: "DRAG BUTTONS TO REPOSITION"; position: fixed; top: 14px; left: 50%;
   transform: translateX(-50%); z-index: 9; background: rgba(0,0,0,.7); color: var(--blue); padding: 8px 14px; border-radius: 8px;
   font-size: 12px; font-weight: 800; letter-spacing: .5px; }
-.float-done { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); z-index: 22; width: auto; padding: 12px 30px; }
+.float-done { position: fixed; top: calc(50px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 22;
+  width: auto; min-height: 48px; padding: 14px 34px; }
 
 /* landing page (index.html) */
 body.land { overflow-y: auto; cursor: default; background:
