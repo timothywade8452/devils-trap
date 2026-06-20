@@ -124,14 +124,12 @@ const MAT = {
 const world = new THREE.Group(); scene.add(world);
 const dynamic = [];                 // per-frame updaters for this level
 let grid = [], gridW = 0, gridH = 0;
-let levelIdx = 0, deaths = 0, totalDeaths = 0, sprung = new Set(), scorch = new Set();
+let levelIdx = 0, deaths = 0, totalDeaths = 0, sprung = new Set();
 let state = "menu";                 // menu | play | dead | win | victory
-const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true };
+const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0 };
 let lavaY = -50, lavaPlane = null, riseTimer = 0;
+let bobPhase = 0, stepDist = 0;     // view-bob + footstep cadence
 const clock = new THREE.Clock();
-
-const SCORCH_KEY = "devilstrap_scorch_v1";
-try { scorch = new Set(JSON.parse(localStorage.getItem(SCORCH_KEY) || "[]")); } catch { scorch = new Set(); }
 
 const HUD = {
   level: document.getElementById("hud-level"), name: document.getElementById("hud-name"),
@@ -160,8 +158,6 @@ function buildLevel(i) {
     if (FLOORLIKE.has(ch)) {
       const f = new THREE.Mesh(floorGeo, floorMat); f.rotation.x = -Math.PI / 2; f.position.set(x, 0, z); f.receiveShadow = true; world.add(f);
       if (ch === "o") f.userData.pitTile = `${r},${c}`; // trap slab that drops
-      // scorch decal if the player has died here before (memory aid)
-      if (scorch.has(`${i}:${r},${c}`)) addScorch(x, z);
     }
     if (ch === "~") { const f = new THREE.Mesh(floorGeo, MAT.lava); f.rotation.x = -Math.PI / 2; f.position.set(x, 0.05, z); world.add(f); const pl = new THREE.PointLight(0xff5a18, 0.8, 12, 2); pl.position.set(x, 1.5, z); world.add(pl); }
     if (SOLID.has(ch)) {
@@ -181,7 +177,14 @@ function buildLevel(i) {
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSprite(), color: 0x9fd4ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   halo.scale.set(7, 7, 1); halo.position.copy(orb.position); world.add(halo);
   const orbLight = new THREE.PointLight(0xaad8ff, 1.4, 40, 2); orbLight.position.copy(orb.position); world.add(orbLight);
-  dynamic.push((t) => { orb.position.y = 2.2 + Math.sin(t * 2) * 0.3; halo.position.y = orb.position.y; orbLight.position.y = orb.position.y; const p = 2 + Math.sin(t * 4) * 0.6; orb.material.emissiveIntensity = p; });
+  // exit beacon: a tall shaft of light that rises above the walls so you can always orient
+  // toward the real exit (it shows WHERE to go, never which tiles are safe).
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.45, 1.5, WALL_H * 3.2, 20, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xaad8ff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  );
+  beam.position.set(worldX(L.goal.c), WALL_H * 1.6, worldZ(L.goal.r)); world.add(beam);
+  dynamic.push((t) => { orb.position.y = 2.2 + Math.sin(t * 2) * 0.3; halo.position.y = orb.position.y; orbLight.position.y = orb.position.y; const p = 2 + Math.sin(t * 4) * 0.6; orb.material.emissiveIntensity = p; beam.material.opacity = 0.12 + Math.sin(t * 3) * 0.05; });
 
   // rising-lava finale plane
   lavaPlane = null;
@@ -194,12 +197,6 @@ function buildLevel(i) {
   respawn();
 }
 
-function addScorch(x, z) {
-  const s = new THREE.Mesh(new THREE.PlaneGeometry(TS * 0.8, TS * 0.8), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.62 }));
-  s.rotation.x = -Math.PI / 2; s.position.set(x, 0.04, z); world.add(s);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(TS * 0.28, TS * 0.4, 16), new THREE.MeshBasicMaterial({ color: 0xff3a1e, transparent: true, opacity: 0.5, side: THREE.DoubleSide }));
-  ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.05, z); world.add(ring);
-}
 function glowSprite() { const [e, x] = cv(128); const g = x.createRadialGradient(64, 64, 4, 64, 64, 64); g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(0.4, "rgba(170,212,255,0.5)"); g.addColorStop(1, "rgba(170,212,255,0)"); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(e); }
 
 // ───────────────────────── spawn / die / win ─────────────────────────
@@ -220,8 +217,6 @@ function respawn() {
 function die(reason) {
   if (state !== "play") return;
   state = "dead"; deaths++; totalDeaths++;
-  const [r, c] = cellOf(player.pos.x, player.pos.z);
-  scorch.add(`${levelIdx}:${r},${c}`); try { localStorage.setItem(SCORCH_KEY, JSON.stringify([...scorch])); } catch {}
   flash("#c01010"); AUDIO.sting("die");
   const pool = TAUNTS[reason] || TAUNTS.void;
   showMsg("YOU DIED", pool[Math.floor(Math.random() * pool.length)], "Press  R  or click to try again  ·  death #" + deaths);
@@ -252,6 +247,7 @@ addEventListener("keydown", (e) => {
   keys[e.code] = true;
   if (e.code === "KeyR" && state === "play") respawn();
   if (e.code === "KeyR" && state === "dead") respawn();
+  if (e.code === "Space" && state === "dead") respawn();
   if (e.code === "Space" && (state === "win" || state === "victory")) advance();
   // zoom: + / - (and keypad), 0 to reset
   if (e.code === "Equal" || e.code === "NumpadAdd") targetFov = clamp(targetFov - 6, 30, 100);
@@ -336,12 +332,14 @@ function tick(dt) {
   if (isTouch) { ix += moveVec.x; iz -= moveVec.y; }
   const len = Math.hypot(ix, iz); if (len > 1) { ix /= len; iz /= len; }
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
+  const spd = SPEED * ((keys.ShiftLeft || keys.ShiftRight) ? 1.5 : 1);   // hold Shift to sprint
   // strafe sign matches the camera's actual screen-right axis (was mirrored before)
-  const wantX = (iz * sin - ix * cos) * SPEED;
-  const wantZ = (iz * cos + ix * sin) * SPEED;
+  const wantX = (iz * sin - ix * cos) * spd;
+  const wantZ = (iz * cos + ix * sin) * spd;
   player.vel.x += (wantX - player.vel.x) * Math.min(1, ACCEL * dt / SPEED);
   player.vel.z += (wantZ - player.vel.z) * Math.min(1, ACCEL * dt / SPEED);
-  if ((keys.Space) && player.grounded) { player.vel.y = JUMP; player.grounded = false; }
+  // jump with a little coyote-time grace so a late press still works at ledges
+  if (keys.Space && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; }
 
   // integrate horizontal + collide
   player.pos.x += player.vel.x * dt; player.pos.z += player.vel.z * dt;
@@ -352,8 +350,8 @@ function tick(dt) {
   const ch = tileAt(grid, r, c);
   const pitSprung = sprung.has(`${r},${c}`);
   const hasFloor = FLOORLIKE.has(ch) && !(ch === "o" && pitSprung);
-  if (hasFloor && player.pos.y <= 0.01 && player.vel.y <= 0) { player.pos.y = 0; player.vel.y = 0; player.grounded = true; }
-  else { player.vel.y -= GRAV * dt; player.pos.y += player.vel.y * dt; player.grounded = false; }
+  if (hasFloor && player.pos.y <= 0.01 && player.vel.y <= 0) { player.pos.y = 0; player.vel.y = 0; player.grounded = true; player.coyote = 0.12; }
+  else { player.vel.y -= GRAV * dt; player.pos.y += player.vel.y * dt; player.grounded = false; player.coyote = Math.max(0, player.coyote - dt); }
 
   // rising lava
   if (lavaPlane) {
@@ -423,6 +421,7 @@ const AUDIO = (() => {
     start() { try { ensure(); if (ctx.state === "suspended") ctx.resume(); } catch {} },
     toggle() { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : 0.5, ctx.currentTime, 0.2); return muted; },
     get muted() { return muted; },
+    step() { if (!ctx || muted) return; const t = ctx.currentTime; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(115, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.08); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.13); },
     sting(type) {
       if (!ctx || muted) return; const t = ctx.currentTime;
       if (type === "die") { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sawtooth"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.6); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.7); }
@@ -461,8 +460,19 @@ function frame() {
     tick(dt);
     // smooth zoom toward target FOV
     if (Math.abs(camera.fov - targetFov) > 0.01) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 12); camera.updateProjectionMatrix(); updateZoomHUD(); }
-    // camera follow
-    camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
+    // camera follow + subtle view-bob while walking (immersion, render-only)
+    const hspeed = Math.hypot(player.vel.x, player.vel.z);
+    let bobY = 0, swayX = 0, swayZ = 0;
+    if (state === "play" && player.grounded && hspeed > 0.8) {
+      bobPhase += dt * hspeed * 1.3;
+      const amp = Math.min(1, hspeed / SPEED);
+      bobY = Math.sin(bobPhase * 2) * 0.09 * amp;
+      const sway = Math.sin(bobPhase) * 0.06 * amp;          // gentle side-to-side
+      swayX = -Math.cos(player.yaw) * sway; swayZ = Math.sin(player.yaw) * sway;
+      stepDist += hspeed * dt;
+      if (stepDist > 2.4) { stepDist = 0; AUDIO.step(); }    // footstep on each stride
+    } else { stepDist = 2.4; }
+    camera.position.set(player.pos.x + swayX, player.pos.y + EYE + bobY, player.pos.z + swayZ);
     const dir = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch), Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
     camera.lookAt(camera.position.clone().add(dir));
     torch.position.copy(camera.position);
