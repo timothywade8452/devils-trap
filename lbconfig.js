@@ -1,21 +1,16 @@
 // Devil's Trap — leaderboard configuration.
 //
-// mode "local"    → scores are stored in this browser (localStorage). Works with ZERO setup, but
-//                   the board is per-device (each device sees the players who played on it).
-// mode "supabase" → a real GLOBAL leaderboard shared across everyone, free, ~3 min to set up:
-//                   1. Create a free project at supabase.com
-//                   2. SQL editor → run:
-//                        create table scores ( id text primary key, name text, cc text, country text,
-//                          points int, deaths int, level int, "bossKills" int, plays int, updated bigint );
-//                        alter table scores enable row level security;
-//                        create policy "read"  on scores for select using (true);
-//                        create policy "write" on scores for insert with check (true);
-//                        create policy "upd"   on scores for update using (true);
-//                   3. Settings → API → paste the Project URL + anon public key below, set mode:"supabase".
-//                   (The anon key is safe to expose — the RLS policies above are what grant access.)
+// mode "firebase" → GLOBAL board (default). Uses the same public Firebase Realtime DB as the other
+//                   Devil's games, under its own `trap_scores` path. Each player is written to their
+//                   OWN key (atomic per-row PUT), so concurrent saves never clobber each other and
+//                   nobody is ever lost. Firebase sends CORS headers and text/plain writes skip the
+//                   preflight, so it works straight from the browser on GitHub Pages.
+// mode "local"    → per-device only (localStorage), zero setup. Offline fallback is automatic.
+// mode "supabase" → alternative global backend (see git history / leaderboard.js for the adapter).
 
 export const CONFIG = {
-  mode: "local",                                  // "local" | "supabase"
+  mode: "firebase",                                // "firebase" | "local" | "supabase"
+  firebase: { url: "https://devils-lie-default-rtdb.firebaseio.com", path: "trap_scores" },
   supabase: { url: "", anon: "", table: "scores" },
 };
 
@@ -28,4 +23,6 @@ export const SCORE = {
   fullVictory: 2000,    // clearing all 30 floors
 };
 export function levelPoints(i) { return SCORE.levelBase + SCORE.levelStep * i; }
-export function isGlobal() { return CONFIG.mode === "supabase" && CONFIG.supabase.url && CONFIG.supabase.anon; }
+export function isGlobal() {
+  return CONFIG.mode === "firebase" || (CONFIG.mode === "supabase" && !!CONFIG.supabase.url && !!CONFIG.supabase.anon);
+}

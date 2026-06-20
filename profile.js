@@ -40,10 +40,13 @@ export function addPlay() { const p = getProfile(); if (!p) return null; p.stats
 // ── country via IP (free, no key; cached on the profile) ──
 export async function detectCountry() {
   const p = getProfile(); if (p && p.cc) return { cc: p.cc, country: p.country };
+  const nameOf = (cc) => { try { return new Intl.DisplayNames(["en"], { type: "region" }).of(cc) || cc; } catch { return cc; } };
   const tryFetch = async (url, pick) => {
-    try { const r = await fetch(url, { headers: { Accept: "application/json" } }); if (!r.ok) return null; return pick(await r.json()); } catch { return null; }
+    try { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) return null; return pick(await r.json()); } catch { return null; }
   };
-  let res = await tryFetch("https://ipwho.is/", (j) => j && j.success !== false && j.country_code ? { cc: j.country_code, country: j.country } : null);
+  // api.country.is is CORS-friendly + reliable; fall back to ipwho.is then geojs
+  let res = await tryFetch("https://api.country.is/", (j) => j && j.country ? { cc: j.country.toUpperCase(), country: nameOf(j.country.toUpperCase()) } : null);
+  if (!res) res = await tryFetch("https://ipwho.is/", (j) => j && j.success !== false && j.country_code ? { cc: j.country_code, country: j.country } : null);
   if (!res) res = await tryFetch("https://get.geojs.io/v1/ip/country.json", (j) => j && j.country ? { cc: j.country, country: j.name || j.country } : null);
   if (res) setCountry(res.cc, res.country);
   return res || { cc: "", country: "" };

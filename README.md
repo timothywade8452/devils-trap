@@ -36,15 +36,16 @@ entire mobile control layout. Everything persists in `localStorage`.
 ## Leaderboard
 
 Every player picks a **name** before playing (captured on the landing page or the game — nobody
-plays unnamed), with their **country auto-detected** from IP (ipwho.is → geojs fallback). You earn
-**points** for clearing floors (worth more the deeper you go), killing bosses, and winning the
-arena; your **death count** is tracked too. A score is submitted the moment you join, so every
+plays unnamed), with their **country auto-detected** from IP (api.country.is → ipwho.is → geojs).
+You earn **points** for clearing floors (worth more the deeper you go), killing bosses, and winning
+the arena; your **death count** is tracked too. A score is submitted the moment you join, so every
 named player is ranked — even after a single floor. Open it with 🏆 (in-game) or on the landing page.
 
-By default the board runs in **local mode** (per-device, zero setup). For a **global** board shared
-across everyone, set up a free Supabase project (~3 min) and fill in `lbconfig.js` — full
-instructions and the one SQL snippet are in that file. (A global backend needs an account/key, which
-can't ship anonymously in a static site; the anon key is safe to expose because RLS policies gate it.)
+The board is **global** by default — a shared Firebase Realtime DB (the same one the other Devil's
+games use, under a `trap_scores` path). Each player is written to their **own key**, so concurrent
+saves are atomic and never clobber each other — nobody is ever lost. It's CORS-enabled and writes
+use `text/plain` to skip the preflight, so it works straight from the browser. Switch to `local`
+(per-device) or a Supabase backend any time in `lbconfig.js`.
 
 ## How it stays fair
 

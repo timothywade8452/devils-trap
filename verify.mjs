@@ -77,7 +77,7 @@ const page = await browser.newPage();
 const errors = [];
 // ignore third-party resource failures (e.g. the IP-geo API is blocked for datacenter IPs) —
 // those aren't game bugs; we still catch all real JS exceptions via pageerror.
-const externalNoise = (s) => /Failed to load resource/i.test(s) || /ipwho\.is|geojs\.io|jsonblob\.com/i.test(s);
+const externalNoise = (s) => /Failed to load resource/i.test(s) || /ipwho\.is|geojs\.io|country\.is|firebaseio\.com/i.test(s);
 page.on("console", (m) => { if (m.type() === "error" && !externalNoise(m.text())) errors.push(m.text()); });
 page.on("pageerror", (e) => { if (!externalNoise(String(e))) errors.push(String(e)); });
 

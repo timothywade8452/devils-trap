@@ -19,9 +19,26 @@ function entryOf(p) {
 }
 const upsert = (scores, e) => { const i = scores.findIndex((s) => s.id === e.id); if (i >= 0) scores[i] = e; else scores.push(e); return scores; };
 
-// ── local backend (default; per-device, zero setup) ──
+// ── local backend (per-device, zero setup / offline fallback) ──
 async function localFetch() { return readStore(); }
 async function localSubmit(p) { writeStore(upsert(readStore(), entryOf(p))); return true; }
+
+// ── firebase realtime DB backend (default GLOBAL) ──
+// Per-player key writes are atomic, so concurrent saves never clobber each other → no user lost.
+// text/plain is a CORS-"simple" content type → no preflight, works from the browser.
+const fbAll = () => `${CONFIG.firebase.url}/${CONFIG.firebase.path}.json`;
+const fbOne = (id) => `${CONFIG.firebase.url}/${CONFIG.firebase.path}/${encodeURIComponent(id)}.json`;
+async function fbFetch() {
+  try {
+    const r = await fetch(fbAll(), { cache: "no-store" });
+    if (r.ok) { const j = await r.json(); const arr = j ? (Array.isArray(j) ? j.filter(Boolean) : Object.values(j)) : []; writeStore(arr); return arr; }
+  } catch {}
+  return readStore();   // offline fallback
+}
+async function fbSubmit(p) {
+  const e = entryOf(p); writeStore(upsert(readStore(), e));   // mirror locally first
+  try { const r = await fetch(fbOne(e.id), { method: "PUT", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify(e) }); return r.ok; } catch { return false; }
+}
 
 // ── supabase backend (optional global; atomic per-row upsert keyed by id) ──
 function sbHeaders() { return { apikey: CONFIG.supabase.anon, Authorization: "Bearer " + CONFIG.supabase.anon, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }; }
@@ -37,10 +54,13 @@ async function sbSubmit(p) {
 }
 
 export const GLOBAL = isGlobal();
-export async function fetchScores() { return GLOBAL ? sbFetch() : localFetch(); }
+const backend = CONFIG.mode === "firebase" ? { fetch: fbFetch, submit: fbSubmit }
+  : (CONFIG.mode === "supabase" && GLOBAL) ? { fetch: sbFetch, submit: sbSubmit }
+  : { fetch: localFetch, submit: localSubmit };
+export async function fetchScores() { return backend.fetch(); }
 // serialize writes so two submits never overlap
 let inflight = Promise.resolve();
-function rawSubmit(p) { inflight = inflight.then(() => (GLOBAL ? sbSubmit(p) : localSubmit(p))).catch(() => {}); return inflight; }
+function rawSubmit(p) { inflight = inflight.then(() => backend.submit(p)).catch(() => {}); return inflight; }
 
 // debounced submit so rapid score events coalesce into one network write
 let pending = null, timer = null;
