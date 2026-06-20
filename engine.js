@@ -4,6 +4,12 @@
 import * as THREE from "three";
 import { LEVELS } from "./levels.js";
 import { TS, WALL_H, SOLID, FLOORLIKE, classify, tileAt } from "./sim.js";
+// Post-processing addons (cinematic bloom). Loaded eagerly; if the CDN fetch
+// fails we fall back to a plain render so the game still boots.
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 // ───────────────────────── tunables ─────────────────────────
 const EYE = 2.3, RADIUS = 1.0, SPEED = 11, ACCEL = 60, JUMP = 9.2, GRAV = 26, DEATH_Y = -14;
@@ -19,20 +25,26 @@ const TAUNTS = {
 
 // ───────────────────────── three setup ─────────────────────────
 const canvas = document.getElementById("c");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// cinematic colour pipeline: filmic tone-map + sRGB output for richer, less "flat" lighting
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x05060a, 0.018);
+scene.fog = new THREE.FogExp2(0x04050a, 0.02);
 const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 400);
+const BASE_FOV = 75;            // zoom lerps toward this / aimed values
+let targetFov = BASE_FOV;
 
 // lights
 const hemi = new THREE.HemisphereLight(0x8088a0, 0x101015, 0.55); scene.add(hemi);
 const amb = new THREE.AmbientLight(0x404858, 0.6); scene.add(amb);
 const torch = new THREE.PointLight(0xfff2d8, 1.0, 70, 1.6); scene.add(torch); // follows the player
-const sun = new THREE.DirectionalLight(0xbfc8e0, 0.5); sun.position.set(20, 60, 10);
-sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+const sun = new THREE.DirectionalLight(0xbfc8e0, 0.55); sun.position.set(20, 60, 10);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.radius = 3;
 sun.shadow.camera.left = -120; sun.shadow.camera.right = 120; sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
 scene.add(sun);
 
@@ -73,17 +85,40 @@ const TEX = {
   lava: texLava(),
   door: (() => { const [e, x] = cv(128); x.fillStyle = "#2a1c14"; x.fillRect(0, 0, 128, 128); x.fillStyle = "#3c2a1d"; x.fillRect(14, 8, 100, 120); x.strokeStyle = "#1a0f08"; x.lineWidth = 4; x.strokeRect(20, 16, 88, 100); x.fillStyle = "#caa24a"; x.beginPath(); x.arc(98, 70, 5, 0, 7); x.fill(); return new THREE.CanvasTexture(e); })(),
 };
+// crisp-up every texture: max anisotropy (sharp at grazing angles) + correct colour space
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+for (const k in TEX) { const t = TEX[k]; t.anisotropy = maxAniso; t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; }
 
 const MAT = {
-  wall: new THREE.MeshStandardMaterial({ map: TEX.concrete, roughness: 0.95 }),
-  door: new THREE.MeshStandardMaterial({ map: TEX.door, roughness: 0.8 }),
-  pillar: new THREE.MeshStandardMaterial({ color: 0x111319, roughness: 0.4, metalness: 0.5 }),
-  floorA: new THREE.MeshStandardMaterial({ map: TEX.floorA, roughness: 0.9 }),
-  floorB: new THREE.MeshStandardMaterial({ map: TEX.floorB, roughness: 0.9 }),
-  lava: new THREE.MeshStandardMaterial({ map: TEX.lava, emissive: 0xff4400, emissiveIntensity: 1.3, roughness: 0.5 }),
-  spike: new THREE.MeshStandardMaterial({ color: 0x16181d, roughness: 0.35, metalness: 0.6 }),
+  wall: new THREE.MeshStandardMaterial({ map: TEX.concrete, bumpMap: TEX.concrete, bumpScale: 0.06, roughness: 0.95, envMapIntensity: 0.5 }),
+  door: new THREE.MeshStandardMaterial({ map: TEX.door, bumpMap: TEX.door, bumpScale: 0.04, roughness: 0.8 }),
+  pillar: new THREE.MeshStandardMaterial({ color: 0x111319, roughness: 0.3, metalness: 0.75, envMapIntensity: 1.4 }),
+  floorA: new THREE.MeshStandardMaterial({ map: TEX.floorA, bumpMap: TEX.floorA, bumpScale: 0.05, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.6 }),
+  floorB: new THREE.MeshStandardMaterial({ map: TEX.floorB, bumpMap: TEX.floorB, bumpScale: 0.05, roughness: 0.88, metalness: 0.08, envMapIntensity: 0.5 }),
+  lava: new THREE.MeshStandardMaterial({ map: TEX.lava, emissive: 0xff4400, emissiveIntensity: 1.6, roughness: 0.5 }),
+  spike: new THREE.MeshStandardMaterial({ color: 0x16181d, roughness: 0.25, metalness: 0.8, envMapIntensity: 1.5 }),
   ceil: new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 1 }),
 };
+
+// ───────────────────────── environment reflections (PMREM, core API) ─────────────────────────
+// A dark teal-to-black gradient sky baked into a pre-filtered cube so metal (pillars, spikes)
+// pick up subtle real reflections instead of looking like flat plastic.
+(function buildEnv() {
+  const [e, x] = cv(512);
+  const g = x.createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0, "#0a1018"); g.addColorStop(0.45, "#0b1420"); g.addColorStop(0.6, "#10161e"); g.addColorStop(1, "#020305");
+  x.fillStyle = g; x.fillRect(0, 0, 512, 512);
+  // a faint cold glow band near the horizon for directional reflection
+  const h = x.createRadialGradient(256, 240, 10, 256, 240, 260);
+  h.addColorStop(0, "rgba(120,150,190,0.30)"); h.addColorStop(1, "rgba(120,150,190,0)");
+  x.fillStyle = h; x.fillRect(0, 0, 512, 512);
+  const eqTex = new THREE.CanvasTexture(e); eqTex.mapping = THREE.EquirectangularReflectionMapping; eqTex.colorSpace = THREE.SRGBColorSpace;
+  try {
+    const pmrem = new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+    scene.environment = pmrem.fromEquirectangular(eqTex).texture;
+    eqTex.dispose(); pmrem.dispose();
+  } catch { scene.environment = eqTex; }
+})();
 
 // ───────────────────────── game state ─────────────────────────
 const world = new THREE.Group(); scene.add(world);
@@ -187,7 +222,7 @@ function die(reason) {
   state = "dead"; deaths++; totalDeaths++;
   const [r, c] = cellOf(player.pos.x, player.pos.z);
   scorch.add(`${levelIdx}:${r},${c}`); try { localStorage.setItem(SCORCH_KEY, JSON.stringify([...scorch])); } catch {}
-  flash("#c01010");
+  flash("#c01010"); AUDIO.sting("die");
   const pool = TAUNTS[reason] || TAUNTS.void;
   showMsg("YOU DIED", pool[Math.floor(Math.random() * pool.length)], "Press  R  or click to try again  ·  death #" + deaths);
   updateHUD();
@@ -195,7 +230,7 @@ function die(reason) {
 
 function winLevel() {
   if (state !== "play") return;
-  flash("#10c040");
+  flash("#10c040"); AUDIO.sting("win");
   if (levelIdx + 1 >= LEVELS.length) {
     state = "victory";
     showMsg("YOU ESCAPED", "All 10 levels. The Devil is impressed.", "Total deaths: " + totalDeaths + "  ·  click for a victory lap");
@@ -218,7 +253,14 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyR" && state === "play") respawn();
   if (e.code === "KeyR" && state === "dead") respawn();
   if (e.code === "Space" && (state === "win" || state === "victory")) advance();
+  // zoom: + / - (and keypad), 0 to reset
+  if (e.code === "Equal" || e.code === "NumpadAdd") targetFov = clamp(targetFov - 6, 30, 100);
+  if (e.code === "Minus" || e.code === "NumpadSubtract") targetFov = clamp(targetFov + 6, 30, 100);
+  if (e.code === "Digit0" || e.code === "Numpad0") targetFov = BASE_FOV;
+  if (e.code === "KeyM") toggleMute();
 });
+// mouse wheel = zoom in / out
+addEventListener("wheel", (e) => { if (state === "play") { targetFov = clamp(targetFov + Math.sign(e.deltaY) * 5, 30, 100); e.preventDefault(); } }, { passive: false });
 addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 canvas.addEventListener("click", () => {
@@ -294,8 +336,9 @@ function tick(dt) {
   if (isTouch) { ix += moveVec.x; iz -= moveVec.y; }
   const len = Math.hypot(ix, iz); if (len > 1) { ix /= len; iz /= len; }
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  const wantX = (ix * cos + iz * sin) * SPEED;
-  const wantZ = (iz * cos - ix * sin) * SPEED;
+  // strafe sign matches the camera's actual screen-right axis (was mirrored before)
+  const wantX = (iz * sin - ix * cos) * SPEED;
+  const wantZ = (iz * cos + ix * sin) * SPEED;
   player.vel.x += (wantX - player.vel.x) * Math.min(1, ACCEL * dt / SPEED);
   player.vel.z += (wantZ - player.vel.z) * Math.min(1, ACCEL * dt / SPEED);
   if ((keys.Space) && player.grounded) { player.vel.y = JUMP; player.grounded = false; }
@@ -345,10 +388,70 @@ function hideMsg() { HUD.msg.classList.remove("show"); }
 let flashT = 0;
 function flash(color) { HUD.flash.style.background = color; HUD.flash.style.opacity = "0.55"; flashT = 0.4; }
 
-function startGame() { state = "play"; document.getElementById("intro").style.display = "none"; buildLevel(0); if (!isTouch) canvas.requestPointerLock(); }
+// ───────────────────────── generative dark-ambient music (WebAudio, no asset files) ─────────────────────────
+// Built lazily on the first user gesture so the headless verifier never spins up an AudioContext.
+const AUDIO = (() => {
+  let ctx = null, master = null, reverb = null, pad = [], lfo = null, timer = null, muted = false;
+  const NOTES = [55, 65.41, 73.42, 82.41, 98];
+  function impulse(seconds, decay) {
+    const rate = ctx.sampleRate, len = (rate * seconds) | 0, buf = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) { const d = buf.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay); }
+    return buf;
+  }
+  function ensure() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(ctx.destination);
+    reverb = ctx.createConvolver(); reverb.buffer = impulse(3.6, 2.4);
+    const wet = ctx.createGain(); wet.gain.value = 0.55; reverb.connect(wet); wet.connect(master);
+    const filter = ctx.createBiquadFilter(); filter.type = "lowpass"; filter.frequency.value = 300; filter.Q.value = 5;
+    filter.connect(master); filter.connect(reverb);
+    lfo = ctx.createOscillator(); const lg = ctx.createGain(); lfo.frequency.value = 0.05; lg.gain.value = 170; lfo.connect(lg); lg.connect(filter.frequency); lfo.start();
+    for (const f of [55, 55.3, 82.41, 110]) { const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.07; o.connect(g); g.connect(filter); o.start(); pad.push(o); }
+    let step = 0;
+    timer = setInterval(() => {
+      if (!ctx || ctx.state !== "running") return;
+      const t = ctx.currentTime;
+      if (step % 2 === 0) thump(t);                 // sub-bass heartbeat
+      if (Math.random() < 0.18) bell(t + 0.05);      // sparse dissonant bell
+      step++;
+    }, 900);
+  }
+  function thump(t) { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(80, t); o.frequency.exponentialRampToValueAtTime(36, t + 0.18); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.55); }
+  function bell(t) { const base = NOTES[Math.floor(Math.random() * NOTES.length)] * 4; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = base * (Math.random() < 0.5 ? 1 : 1.5); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2); o.connect(g); g.connect(reverb); o.start(t); o.stop(t + 2.3); }
+  return {
+    start() { try { ensure(); if (ctx.state === "suspended") ctx.resume(); } catch {} },
+    toggle() { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : 0.5, ctx.currentTime, 0.2); return muted; },
+    get muted() { return muted; },
+    sting(type) {
+      if (!ctx || muted) return; const t = ctx.currentTime;
+      if (type === "die") { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sawtooth"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.6); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.7); }
+      if (type === "win") { [392, 523.25, 659.25].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = f; const s = t + i * 0.09; g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(0.18, s + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, s + 0.9); o.connect(g); g.connect(reverb); o.start(s); o.stop(s + 1); }); }
+    },
+  };
+})();
+function toggleMute() { const m = AUDIO.toggle(); const b = document.getElementById("mutebtn"); if (b) b.textContent = m ? "🔇" : "🔊"; }
+function updateZoomHUD() { const z = document.getElementById("hud-zoom"); if (z) { const pct = Math.round(BASE_FOV / camera.fov * 100); z.textContent = pct === 100 ? "" : "🔍 " + pct + "%"; } }
 
-// ───────────────────────── main loop ─────────────────────────
-function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+function startGame() { state = "play"; document.getElementById("intro").style.display = "none"; AUDIO.start(); buildLevel(0); if (!isTouch) canvas.requestPointerLock(); }
+
+// ───────────────────────── post-processing (cinematic bloom) ─────────────────────────
+// Wrapped so a CDN miss on the addons degrades gracefully to a plain render.
+let composer = null, bloomPass = null;
+try {
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.8, 0.6, 0.8); // strength, radius, threshold
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+} catch (err) { composer = null; console.warn("bloom unavailable, plain render", err); }
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (composer) composer.setSize(w, h);
+  if (bloomPass) bloomPass.resolution.set(w, h);
+}
 addEventListener("resize", resize); resize();
 
 function frame() {
@@ -356,6 +459,8 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta()); const t = clock.elapsedTime;
   if (!window.__noRender) {
     tick(dt);
+    // smooth zoom toward target FOV
+    if (Math.abs(camera.fov - targetFov) > 0.01) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 12); camera.updateProjectionMatrix(); updateZoomHUD(); }
     // camera follow
     camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
     const dir = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch), Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
@@ -365,7 +470,7 @@ function frame() {
     // pit slabs dropping
     world.traverse((m) => { if (m.userData && m.userData.dropping && m.position.y > -16) { m.position.y -= dt * 30; if (m.position.y < -15) m.visible = false; } });
     if (flashT > 0) { flashT -= dt; HUD.flash.style.opacity = String(Math.max(0, flashT / 0.4 * 0.55)); }
-    renderer.render(scene, camera);
+    if (composer) composer.render(dt); else renderer.render(scene, camera);
   }
 }
 
@@ -378,6 +483,7 @@ window.Trap = {
   get state() { return state; }, get deaths() { return deaths; }, get level() { return levelIdx; },
   get player() { return player; }, LEVELS, TS,
   start: startGame,
+  toggleMute,
   goto(i) { document.getElementById("intro").style.display = "none"; buildLevel(i); },
   // step the simulation by hand (dt seconds), used by the bot
   step(dt) { tick(dt); },

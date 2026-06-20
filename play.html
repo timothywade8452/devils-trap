@@ -12,10 +12,11 @@
   <!-- HUD -->
   <div id="hud">
     <div id="hud-left"><span id="hud-level">LV 1/10</span><span id="hud-name">The Threshold</span></div>
-    <div id="hud-right"><span id="hud-deaths">☠ 0</span></div>
+    <div id="hud-right"><span id="hud-zoom"></span><span id="hud-deaths">☠ 0</span><button id="mutebtn" title="Mute / unmute music (M)">🔊</button></div>
   </div>
   <div id="crosshair">+</div>
   <div id="flash"></div>
+  <div id="vignette"></div>
 
   <!-- intro / menu -->
   <div id="intro">
@@ -27,7 +28,7 @@
       memorize. The traps never move, so what kills you once teaches you forever. Spots that killed you
       glow red on the next run.</p>
       <button id="play-btn">CLICK TO ENTER</button>
-      <p class="ctrl"><b>WASD / arrows</b> move · <b>mouse</b> look · <b>space</b> jump · <b>R</b> restart · <b>esc</b> free cursor</p>
+      <p class="ctrl"><b>WASD / arrows</b> move · <b>mouse</b> look · <b>space</b> jump · <b>scroll / +−</b> zoom · <b>R</b> restart · <b>M</b> music · <b>esc</b> free cursor</p>
     </div>
   </div>
 
@@ -45,7 +46,10 @@
   </div>
 
   <script type="importmap">
-  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  { "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  } }
   </script>
   <script type="module" src="engine.js"></script>
   <script>
@@ -53,6 +57,8 @@
       // engine wires the canvas click; mirror it for the button
       window.Trap ? window.Trap.start() : addEventListener("trap-ready", () => window.Trap.start(), { once: true });
     });
+    // mute button — stop propagation so clicking it doesn't also grab pointer-lock
+    document.getElementById("mutebtn").addEventListener("click", (e) => { e.stopPropagation(); window.Trap && window.Trap.toggleMute(); });
   </script>
 </body>
 </html>
