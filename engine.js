@@ -10,6 +10,8 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { S, mountSettings, openSettings, isSettingsOpen } from "./settings.js";
+import { createArena } from "./arena.js";
 
 // ───────────────────────── tunables ─────────────────────────
 const EYE = 2.3, RADIUS = 1.0, SPEED = 11, ACCEL = 60, JUMP = 9.2, GRAV = 26, DEATH_Y = -14;
@@ -21,6 +23,7 @@ const TAUNTS = {
   lava:   ["Hot take: don't touch lava.", "Medium rare.", "The floor was a warning."],
   lavarise:["Too slow. The floor is lava now.", "Should've run.", "Outrun by a puddle."],
   void:   ["You never learn.", "Reset your math, not your luck.", "Down you go."],
+  shot:   ["Out-gunned.", "The bosses send their regards.", "You blinked. They didn't."],
 };
 
 // ───────────────────────── three setup ─────────────────────────
@@ -36,7 +39,7 @@ renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x04050a, 0.02);
 const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 400);
-const BASE_FOV = 75;            // zoom lerps toward this / aimed values
+let BASE_FOV = 75;             // zoom lerps toward this / aimed values (follows the FOV setting)
 let targetFov = BASE_FOV;
 
 // lights
@@ -80,8 +83,9 @@ function texLava() {
 }
 const TEX = {
   concrete: texConcrete(),
-  floorA: texFloor("#caccd2", "#33363d"), // grey checker
-  floorB: texFloor("#c9b48a", "#6e5a38"), // tan stone (later levels)
+  floorA: texFloor("#caccd2", "#33363d"), // grey checker  — Act I (cold slate)
+  floorB: texFloor("#d2b487", "#6e5230"), // amber stone    — Act II (rust)
+  floorC: texFloor("#b9a6dc", "#3a2c54"), // violet stone   — Act III (toxic)
   lava: texLava(),
   door: (() => { const [e, x] = cv(128); x.fillStyle = "#2a1c14"; x.fillRect(0, 0, 128, 128); x.fillStyle = "#3c2a1d"; x.fillRect(14, 8, 100, 120); x.strokeStyle = "#1a0f08"; x.lineWidth = 4; x.strokeRect(20, 16, 88, 100); x.fillStyle = "#caa24a"; x.beginPath(); x.arc(98, 70, 5, 0, 7); x.fill(); return new THREE.CanvasTexture(e); })(),
 };
@@ -95,6 +99,7 @@ const MAT = {
   pillar: new THREE.MeshStandardMaterial({ color: 0x111319, roughness: 0.3, metalness: 0.75, envMapIntensity: 1.4 }),
   floorA: new THREE.MeshStandardMaterial({ map: TEX.floorA, bumpMap: TEX.floorA, bumpScale: 0.05, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.6 }),
   floorB: new THREE.MeshStandardMaterial({ map: TEX.floorB, bumpMap: TEX.floorB, bumpScale: 0.05, roughness: 0.88, metalness: 0.08, envMapIntensity: 0.5 }),
+  floorC: new THREE.MeshStandardMaterial({ map: TEX.floorC, bumpMap: TEX.floorC, bumpScale: 0.05, roughness: 0.82, metalness: 0.12, envMapIntensity: 0.7 }),
   lava: new THREE.MeshStandardMaterial({ map: TEX.lava, emissive: 0xff4400, emissiveIntensity: 1.6, roughness: 0.5 }),
   spike: new THREE.MeshStandardMaterial({ color: 0x16181d, roughness: 0.25, metalness: 0.8, envMapIntensity: 1.5 }),
   ceil: new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 1 }),
@@ -120,13 +125,22 @@ const MAT = {
   } catch { scene.environment = eqTex; }
 })();
 
+// per-act colour themes — fog, lights, wall tint and exit accent shift each act
+const THEMES = [
+  { floor: MAT.floorA, fog: 0x05060a, sky: 0x8088a0, ground: 0x101015, amb: 0x404858, torch: 0xfff2d8, wall: 0xa6abb6, accent: 0xaad8ff },
+  { floor: MAT.floorB, fog: 0x0a0604, sky: 0xb08c5c, ground: 0x160d06, amb: 0x4e3a24, torch: 0xffd49a, wall: 0xc09a72, accent: 0xff9a3c },
+  { floor: MAT.floorC, fog: 0x09040e, sky: 0x9778b6, ground: 0x130a1a, amb: 0x483a5c, torch: 0xe2c2ff, wall: 0xa98fcc, accent: 0xc35cff },
+];
+
 // ───────────────────────── game state ─────────────────────────
 const world = new THREE.Group(); scene.add(world);
 const dynamic = [];                 // per-frame updaters for this level
 let grid = [], gridW = 0, gridH = 0;
 let levelIdx = 0, deaths = 0, totalDeaths = 0, sprung = new Set();
 let state = "menu";                 // menu | play | dead | win | victory
-const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0 };
+let mode = "maze";                  // maze | arena
+let arena = null;                   // arena controller (created on first arena run)
+const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0, hp: 100 };
 let lavaY = -50, lavaPlane = null, riseTimer = 0;
 let bobPhase = 0, stepDist = 0;     // view-bob + footstep cadence
 const clock = new THREE.Clock();
@@ -148,7 +162,13 @@ function buildLevel(i) {
   for (let k = world.children.length - 1; k >= 0; k--) world.remove(world.children[k]);
   dynamic.length = 0;
   const L = LEVELS[i]; grid = L.grid.map((r) => r.split("")); gridH = grid.length; gridW = grid[0].length;
-  const floorMat = i >= 5 ? MAT.floorB : MAT.floorA;
+  // apply this act's colour theme
+  const theme = THEMES[L.tier || 0];
+  const floorMat = theme.floor;
+  scene.fog.color.setHex(theme.fog);
+  hemi.color.setHex(theme.sky); hemi.groundColor.setHex(theme.ground);
+  amb.color.setHex(theme.amb); torch.color.setHex(theme.torch);
+  MAT.wall.color.setHex(theme.wall);
   const floorGeo = new THREE.PlaneGeometry(TS, TS);
   const wallGeo = new THREE.BoxGeometry(TS, WALL_H, TS);
 
@@ -172,16 +192,16 @@ function buildLevel(i) {
   ceil.rotation.x = Math.PI / 2; ceil.position.set((gridW - 1) * TS / 2, WALL_H, (gridH - 1) * TS / 2); world.add(ceil);
 
   // goal orb (the only real exit) — glowing, pulsing, with its own light
-  const orb = new THREE.Mesh(new THREE.SphereGeometry(1.1, 24, 24), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xcfe8ff, emissiveIntensity: 2.2 }));
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(1.1, 24, 24), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: theme.accent, emissiveIntensity: 2.2 }));
   orb.position.set(worldX(L.goal.c), 2.2, worldZ(L.goal.r)); world.add(orb);
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSprite(), color: 0x9fd4ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowSprite(), color: theme.accent, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   halo.scale.set(7, 7, 1); halo.position.copy(orb.position); world.add(halo);
-  const orbLight = new THREE.PointLight(0xaad8ff, 1.4, 40, 2); orbLight.position.copy(orb.position); world.add(orbLight);
+  const orbLight = new THREE.PointLight(theme.accent, 1.4, 40, 2); orbLight.position.copy(orb.position); world.add(orbLight);
   // exit beacon: a tall shaft of light that rises above the walls so you can always orient
   // toward the real exit (it shows WHERE to go, never which tiles are safe).
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.45, 1.5, WALL_H * 3.2, 20, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0xaad8ff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
   );
   beam.position.set(worldX(L.goal.c), WALL_H * 1.6, worldZ(L.goal.r)); world.add(beam);
   dynamic.push((t) => { orb.position.y = 2.2 + Math.sin(t * 2) * 0.3; halo.position.y = orb.position.y; orbLight.position.y = orb.position.y; const p = 2 + Math.sin(t * 4) * 0.6; orb.material.emissiveIntensity = p; beam.material.opacity = 0.12 + Math.sin(t * 3) * 0.05; });
@@ -201,6 +221,7 @@ function glowSprite() { const [e, x] = cv(128); const g = x.createRadialGradient
 
 // ───────────────────────── spawn / die / win ─────────────────────────
 function respawn() {
+  if (mode === "arena") { buildArena(); return; }
   const L = LEVELS[levelIdx];
   player.pos.set(worldX(L.start.c), 0, worldZ(L.start.r));
   player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0;
@@ -237,6 +258,7 @@ function winLevel() {
 }
 
 function advance() {
+  if (mode === "arena") { buildArena(); return; }
   if (state === "win") buildLevel(levelIdx + 1);
   else if (state === "victory") { totalDeaths = 0; buildLevel(0); }
 }
@@ -254,52 +276,150 @@ addEventListener("keydown", (e) => {
   if (e.code === "Minus" || e.code === "NumpadSubtract") targetFov = clamp(targetFov + 6, 30, 100);
   if (e.code === "Digit0" || e.code === "Numpad0") targetFov = BASE_FOV;
   if (e.code === "KeyM") toggleMute();
+  if (e.code === "KeyP") { openSettings(); }
 });
 // mouse wheel = zoom in / out
-addEventListener("wheel", (e) => { if (state === "play") { targetFov = clamp(targetFov + Math.sign(e.deltaY) * 5, 30, 100); e.preventDefault(); } }, { passive: false });
+addEventListener("wheel", (e) => { if (state === "play" && !isSettingsOpen()) { targetFov = clamp(targetFov + Math.sign(e.deltaY) * 5, 30, 100); e.preventDefault(); } }, { passive: false });
 addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 canvas.addEventListener("click", () => {
+  if (isSettingsOpen()) return;
   if (state === "menu") { startGame(); return; }
   if (state === "dead") { respawn(); return; }
   if (state === "win" || state === "victory") { advance(); return; }
   if (!isTouch) canvas.requestPointerLock();
 });
+// fire while pointer-locked in the arena (left button held = auto-fire, gated by cooldown)
+canvas.addEventListener("mousedown", (e) => { if (e.button === 0 && mode === "arena" && document.pointerLockElement === canvas) { shootHeld = true; fire(); } });
+addEventListener("mouseup", (e) => { if (e.button === 0) shootHeld = false; });
 document.addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement === canvas && state === "play") {
-    player.yaw -= e.movementX * 0.0023; player.pitch = clamp(player.pitch - e.movementY * 0.0023, -1.3, 1.3);
+  if (document.pointerLockElement === canvas && state === "play" && !isSettingsOpen()) {
+    const s = 0.0023 * S.sensitivity, iv = S.invertY ? -1 : 1;
+    player.yaw -= e.movementX * s; player.pitch = clamp(player.pitch - e.movementY * s * iv, -1.3, 1.3);
   }
 });
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-// touch controls
+// ───────────────────────── touch controls (fully customizable) ─────────────────────────
 const isTouch = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-let moveVec = { x: 0, y: 0 }, lookId = null, lastLook = null;
-function setupTouch() {
+let moveVec = { x: 0, y: 0 }, touchSprint = false, shootHeld = false, editLayout = false;
+const T = {};   // cached DOM refs
+
+function defaultPos(ctrl) {            // [left, bottom] in px; move control opposite the action cluster
+  const w = innerWidth, moveLeft = S.mHanded === "right", m = 26;
+  const actX = moveLeft ? w - 116 : m, oppX = moveLeft ? m : w - 116;
+  switch (ctrl) {
+    case "move":   return moveLeft ? [m, m] : [w - 158, m];
+    case "jump":   return [actX, m + 6];
+    case "sprint": return moveLeft ? [actX - 104, m + 6] : [actX + 104, m + 6];
+    case "shoot":  return [actX, m + 116];
+  }
+  return [m, m];
+}
+function applyMobileLayout() {
   if (!isTouch) return;
-  document.getElementById("touch").style.display = "block";
-  const stick = document.getElementById("stick"), nub = document.getElementById("nub");
+  const moveEl = S.mScheme === "dpad" ? T.dpad : T.stick;
+  T.stick.style.display = S.mScheme === "dpad" ? "none" : "flex";
+  T.dpad.style.display = S.mScheme === "dpad" ? "block" : "none";
+  const place = (el, ctrl) => {
+    if (!el) return;
+    const p = S.mLayout[ctrl] || defaultPos(ctrl);
+    el.style.left = p[0] + "px"; el.style.bottom = p[1] + "px";
+    el.style.opacity = S.mOpacity; el.style.transform = `scale(${S.mScale})`; el.style.transformOrigin = "center";
+    el.dataset.ctrl = ctrl;
+  };
+  place(moveEl, "move"); place(T.jump, "jump"); place(T.sprint, "sprint"); place(T.shoot, "shoot");
+  T.shoot.style.display = (mode === "arena") ? "flex" : "none";
+}
+
+function setupTouch() {
+  T.touch = document.getElementById("touch"); T.stick = document.getElementById("stick"); T.nub = document.getElementById("nub");
+  T.dpad = document.getElementById("dpad"); T.jump = document.getElementById("jumpbtn"); T.sprint = document.getElementById("sprintbtn"); T.shoot = document.getElementById("shootbtn");
+  if (!isTouch) return;
+  T.touch.style.display = "block";
+  applyMobileLayout();
+
+  // a held-button helper that also doubles as a drag handle in layout-edit mode
+  const holdBtn = (el, onDown, onUp) => {
+    let dragId = null, off = null;
+    el.addEventListener("touchstart", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (editLayout) { const t = e.changedTouches[0]; dragId = t.identifier; const r = el.getBoundingClientRect(); off = { x: t.clientX - r.left, y: t.clientY - r.top }; return; }
+      el.classList.add("held"); onDown && onDown();
+    }, { passive: false });
+    el.addEventListener("touchmove", (e) => {
+      if (!editLayout || dragId === null) return; e.preventDefault(); e.stopPropagation();
+      for (const t of e.changedTouches) if (t.identifier === dragId) {
+        const left = clamp(t.clientX - off.x, 0, innerWidth - el.offsetWidth);
+        const bottom = clamp(innerHeight - (t.clientY - off.y) - el.offsetHeight, 0, innerHeight - el.offsetHeight);
+        el.style.left = left + "px"; el.style.bottom = bottom + "px";
+        S.mLayout[el.dataset.ctrl] = [Math.round(left), Math.round(bottom)]; saveS();
+      }
+    }, { passive: false });
+    const end = (e) => { if (editLayout) { dragId = null; return; } el.classList.remove("held"); onUp && onUp(); };
+    el.addEventListener("touchend", end); el.addEventListener("touchcancel", end);
+  };
+
+  holdBtn(T.jump, () => { if (state === "play" && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; } });
+  holdBtn(T.sprint, () => { touchSprint = true; }, () => { touchSprint = false; });
+  holdBtn(T.shoot, () => { shootHeld = true; fire(); }, () => { shootHeld = false; });
+
+  // analog stick
   let stickId = null, origin = null;
-  const startStick = (t) => { stickId = t.identifier; const r = stick.getBoundingClientRect(); origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
-  const moveStick = (t) => { const dx = clamp((t.clientX - origin.x) / 55, -1, 1), dy = clamp((t.clientY - origin.y) / 55, -1, 1); moveVec = { x: dx, y: dy }; nub.style.transform = `translate(${dx * 35}px,${dy * 35}px)`; };
-  addEventListener("touchstart", (e) => {
-    for (const t of e.changedTouches) {
-      if (state === "dead") { respawn(); return; }
-      if (state === "win" || state === "victory") { advance(); return; }
-      if (state === "menu") { startGame(); return; }
-      if (t.clientX < innerWidth * 0.45 && stickId === null) startStick(t);
-      else if (lookId === null) { lookId = t.identifier; lastLook = { x: t.clientX, y: t.clientY }; }
+  holdBtnStick();
+  function holdBtnStick() {
+    T.stick.addEventListener("touchstart", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const t = e.changedTouches[0];
+      if (editLayout) { dragHandle(T.stick, t); return; }
+      stickId = t.identifier; const r = T.stick.getBoundingClientRect(); origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, { passive: false });
+    T.stick.addEventListener("touchmove", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (editLayout) return;
+      for (const t of e.changedTouches) if (t.identifier === stickId) {
+        const dx = clamp((t.clientX - origin.x) / 52, -1, 1), dy = clamp((t.clientY - origin.y) / 52, -1, 1);
+        moveVec = { x: dx, y: dy }; T.nub.style.transform = `translate(${dx * 34}px,${dy * 34}px)`;
+      }
+    }, { passive: false });
+    const end = () => { stickId = null; moveVec = { x: 0, y: 0 }; T.nub.style.transform = ""; };
+    T.stick.addEventListener("touchend", end); T.stick.addEventListener("touchcancel", end);
+  }
+  // dpad
+  T.dpad.querySelectorAll("button").forEach((b) => {
+    const code = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" }[b.dataset.dir];
+    b.addEventListener("touchstart", (e) => { e.preventDefault(); e.stopPropagation(); if (editLayout) { dragHandle(T.dpad, e.changedTouches[0]); return; } keys[code] = true; b.classList.add("held"); }, { passive: false });
+    const up = (e) => { keys[code] = false; b.classList.remove("held"); };
+    b.addEventListener("touchend", up); b.addEventListener("touchcancel", up);
+  });
+  function dragHandle(el, t) {
+    const r = el.getBoundingClientRect(), off = { x: t.clientX - r.left, y: t.clientY - r.top }, id = t.identifier;
+    const mv = (e) => { for (const tt of e.changedTouches) if (tt.identifier === id) {
+      const left = clamp(tt.clientX - off.x, 0, innerWidth - el.offsetWidth), bottom = clamp(innerHeight - (tt.clientY - off.y) - el.offsetHeight, 0, innerHeight - el.offsetHeight);
+      el.style.left = left + "px"; el.style.bottom = bottom + "px"; S.mLayout[el.dataset.ctrl] = [Math.round(left), Math.round(bottom)]; saveS();
+    } e.preventDefault(); };
+    const up = () => { removeEventListener("touchmove", mv); removeEventListener("touchend", up); };
+    addEventListener("touchmove", mv, { passive: false }); addEventListener("touchend", up);
+  }
+
+  // look — single-finger drag anywhere on the canvas (buttons sit above and stop propagation)
+  let lookId = null, lastLook = null;
+  canvas.addEventListener("touchstart", (e) => {
+    if (editLayout || isSettingsOpen()) return;
+    const t = e.changedTouches[0];
+    if (state !== "play") return;       // taps for menu/respawn handled by the click event
+    if (lookId === null) { lookId = t.identifier; lastLook = { x: t.clientX, y: t.clientY }; }
+  }, { passive: true });
+  canvas.addEventListener("touchmove", (e) => {
+    if (lookId === null) return;
+    for (const t of e.changedTouches) if (t.identifier === lookId) {
+      const s = 0.006 * S.sensitivity, iv = S.invertY ? -1 : 1;
+      player.yaw -= (t.clientX - lastLook.x) * s; player.pitch = clamp(player.pitch - (t.clientY - lastLook.y) * s * iv, -1.3, 1.3);
+      lastLook = { x: t.clientX, y: t.clientY };
     }
-  }, { passive: false });
-  addEventListener("touchmove", (e) => {
-    for (const t of e.changedTouches) {
-      if (t.identifier === stickId) moveStick(t);
-      else if (t.identifier === lookId) { player.yaw -= (t.clientX - lastLook.x) * 0.006; player.pitch = clamp(player.pitch - (t.clientY - lastLook.y) * 0.006, -1.3, 1.3); lastLook = { x: t.clientX, y: t.clientY }; }
-    }
-    e.preventDefault();
-  }, { passive: false });
-  addEventListener("touchend", (e) => { for (const t of e.changedTouches) { if (t.identifier === stickId) { stickId = null; moveVec = { x: 0, y: 0 }; nub.style.transform = ""; } if (t.identifier === lookId) lookId = null; } });
-  document.getElementById("jumpbtn").addEventListener("touchstart", (e) => { e.preventDefault(); if (player.grounded && state === "play") { player.vel.y = JUMP; player.grounded = false; } });
+  }, { passive: true });
+  const lookEnd = (e) => { for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null; };
+  canvas.addEventListener("touchend", lookEnd); canvas.addEventListener("touchcancel", lookEnd);
 }
 
 // ───────────────────────── physics & traps ─────────────────────────
@@ -323,23 +443,27 @@ function collide(pos) {
 
 function tick(dt) {
   if (state !== "play") return;
+  const frozen = isSettingsOpen();
   // movement intent (camera-relative)
   let ix = 0, iz = 0;
-  if (keys.KeyW || keys.ArrowUp) iz += 1;
-  if (keys.KeyS || keys.ArrowDown) iz -= 1;
-  if (keys.KeyA || keys.ArrowLeft) ix -= 1;
-  if (keys.KeyD || keys.ArrowRight) ix += 1;
-  if (isTouch) { ix += moveVec.x; iz -= moveVec.y; }
+  if (!frozen) {
+    if (keys.KeyW || keys.ArrowUp) iz += 1;
+    if (keys.KeyS || keys.ArrowDown) iz -= 1;
+    if (keys.KeyA || keys.ArrowLeft) ix -= 1;
+    if (keys.KeyD || keys.ArrowRight) ix += 1;
+    if (isTouch) { ix += moveVec.x; iz -= moveVec.y; }
+  }
   const len = Math.hypot(ix, iz); if (len > 1) { ix /= len; iz /= len; }
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  const spd = SPEED * ((keys.ShiftLeft || keys.ShiftRight) ? 1.5 : 1);   // hold Shift to sprint
+  const sprinting = keys.ShiftLeft || keys.ShiftRight || touchSprint;
+  const spd = SPEED * S.moveSpeed * (sprinting ? 1.5 : 1);   // Shift / RUN to sprint
   // strafe sign matches the camera's actual screen-right axis (was mirrored before)
   const wantX = (iz * sin - ix * cos) * spd;
   const wantZ = (iz * cos + ix * sin) * spd;
   player.vel.x += (wantX - player.vel.x) * Math.min(1, ACCEL * dt / SPEED);
   player.vel.z += (wantZ - player.vel.z) * Math.min(1, ACCEL * dt / SPEED);
   // jump with a little coyote-time grace so a late press still works at ledges
-  if (keys.Space && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; }
+  if (!frozen && keys.Space && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; }
 
   // integrate horizontal + collide
   player.pos.x += player.vel.x * dt; player.pos.z += player.vel.z * dt;
@@ -380,7 +504,7 @@ function springVisual(ch, r, c) {
 }
 
 // ───────────────────────── HUD / overlays ─────────────────────────
-function updateHUD() { const L = LEVELS[levelIdx]; HUD.level.textContent = "LV " + (levelIdx + 1) + "/" + LEVELS.length; HUD.name.textContent = L.name; HUD.deaths.textContent = "☠ " + deaths; }
+function updateHUD() { if (mode === "arena") return; const L = LEVELS[levelIdx]; HUD.level.textContent = "LV " + (levelIdx + 1) + "/" + LEVELS.length; HUD.name.textContent = L.name; HUD.deaths.textContent = "☠ " + deaths; }
 function showMsg(title, sub, hint) { HUD.msgTitle.textContent = title; HUD.msgSub.textContent = sub; HUD.msgHint.textContent = hint; HUD.msg.classList.add("show"); }
 function hideMsg() { HUD.msg.classList.remove("show"); }
 let flashT = 0;
@@ -389,7 +513,7 @@ function flash(color) { HUD.flash.style.background = color; HUD.flash.style.opac
 // ───────────────────────── generative dark-ambient music (WebAudio, no asset files) ─────────────────────────
 // Built lazily on the first user gesture so the headless verifier never spins up an AudioContext.
 const AUDIO = (() => {
-  let ctx = null, master = null, reverb = null, pad = [], lfo = null, timer = null, muted = false;
+  let ctx = null, master = null, musicBus = null, sfxBus = null, reverb = null, pad = [], lfo = null, timer = null, muted = false;
   const NOTES = [55, 65.41, 73.42, 82.41, 98];
   function impulse(seconds, decay) {
     const rate = ctx.sampleRate, len = (rate * seconds) | 0, buf = ctx.createBuffer(2, len, rate);
@@ -399,11 +523,13 @@ const AUDIO = (() => {
   function ensure() {
     if (ctx) return;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    master = ctx.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(ctx.destination);
+    master = ctx.createGain(); master.gain.value = muted ? 0 : S.masterVol; master.connect(ctx.destination);
+    musicBus = ctx.createGain(); musicBus.gain.value = S.music ? 1 : 0; musicBus.connect(master);
+    sfxBus = ctx.createGain(); sfxBus.gain.value = S.sfx ? 1 : 0; sfxBus.connect(master);
     reverb = ctx.createConvolver(); reverb.buffer = impulse(3.6, 2.4);
     const wet = ctx.createGain(); wet.gain.value = 0.55; reverb.connect(wet); wet.connect(master);
     const filter = ctx.createBiquadFilter(); filter.type = "lowpass"; filter.frequency.value = 300; filter.Q.value = 5;
-    filter.connect(master); filter.connect(reverb);
+    filter.connect(musicBus); filter.connect(reverb);
     lfo = ctx.createOscillator(); const lg = ctx.createGain(); lfo.frequency.value = 0.05; lg.gain.value = 170; lfo.connect(lg); lg.connect(filter.frequency); lfo.start();
     for (const f of [55, 55.3, 82.41, 110]) { const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.07; o.connect(g); g.connect(filter); o.start(); pad.push(o); }
     let step = 0;
@@ -415,16 +541,28 @@ const AUDIO = (() => {
       step++;
     }, 900);
   }
-  function thump(t) { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(80, t); o.frequency.exponentialRampToValueAtTime(36, t + 0.18); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.55); }
-  function bell(t) { const base = NOTES[Math.floor(Math.random() * NOTES.length)] * 4; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = base * (Math.random() < 0.5 ? 1 : 1.5); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2); o.connect(g); g.connect(reverb); o.start(t); o.stop(t + 2.3); }
+  function thump(t) { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(80, t); o.frequency.exponentialRampToValueAtTime(36, t + 0.18); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.connect(g); g.connect(musicBus); o.start(t); o.stop(t + 0.55); }
+  function bell(t) { const base = NOTES[Math.floor(Math.random() * NOTES.length)] * 4; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = base * (Math.random() < 0.5 ? 1 : 1.5); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2); o.connect(g); g.connect(musicBus); g.connect(reverb); o.start(t); o.stop(t + 2.3); }
+  // generic blip used by the arena (shoot / hit / boom) — routed through the sfx bus
+  function blip(type, t) {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.connect(g); g.connect(sfxBus);
+    if (type === "shoot") { o.type = "square"; o.frequency.setValueAtTime(720, t); o.frequency.exponentialRampToValueAtTime(280, t + 0.12); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.14, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16); o.start(t); o.stop(t + 0.18); }
+    else if (type === "hit") { o.type = "triangle"; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(120, t + 0.1); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.start(t); o.stop(t + 0.15); }
+    else if (type === "boom") { o.type = "sawtooth"; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.4); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.32, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5); o.start(t); o.stop(t + 0.52); }
+    else if (type === "hurt") { o.type = "sawtooth"; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.18); g.gain.setValueAtTime(0.28, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2); o.start(t); o.stop(t + 0.22); }
+  }
   return {
     start() { try { ensure(); if (ctx.state === "suspended") ctx.resume(); } catch {} },
-    toggle() { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : 0.5, ctx.currentTime, 0.2); return muted; },
+    toggle() { muted = !muted; if (master) master.gain.setTargetAtTime(muted ? 0 : S.masterVol, ctx.currentTime, 0.2); return muted; },
     get muted() { return muted; },
-    step() { if (!ctx || muted) return; const t = ctx.currentTime; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(115, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.08); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.13); },
+    setVolume(v) { if (master && !muted) master.gain.setTargetAtTime(v, ctx.currentTime, 0.1); },
+    setMusic(on) { if (musicBus) musicBus.gain.setTargetAtTime(on ? 1 : 0, ctx.currentTime, 0.1); },
+    setSfx(on) { if (sfxBus) sfxBus.gain.setTargetAtTime(on ? 1 : 0, ctx.currentTime, 0.1); },
+    sfx(type) { if (ctx) blip(type, ctx.currentTime); },
+    step() { if (!ctx) return; const t = ctx.currentTime; const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sine"; o.frequency.setValueAtTime(115, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.08); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12); o.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + 0.13); },
     sting(type) {
-      if (!ctx || muted) return; const t = ctx.currentTime;
-      if (type === "die") { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sawtooth"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.6); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.7); }
+      if (!ctx) return; const t = ctx.currentTime;
+      if (type === "die") { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sawtooth"; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.6); g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7); o.connect(g); g.connect(sfxBus); o.start(t); o.stop(t + 0.7); }
       if (type === "win") { [392, 523.25, 659.25].forEach((f, i) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "triangle"; o.frequency.value = f; const s = t + i * 0.09; g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(0.18, s + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, s + 0.9); o.connect(g); g.connect(reverb); o.start(s); o.stop(s + 1); }); }
     },
   };
@@ -432,7 +570,78 @@ const AUDIO = (() => {
 function toggleMute() { const m = AUDIO.toggle(); const b = document.getElementById("mutebtn"); if (b) b.textContent = m ? "🔇" : "🔊"; }
 function updateZoomHUD() { const z = document.getElementById("hud-zoom"); if (z) { const pct = Math.round(BASE_FOV / camera.fov * 100); z.textContent = pct === 100 ? "" : "🔍 " + pct + "%"; } }
 
-function startGame() { state = "play"; document.getElementById("intro").style.display = "none"; AUDIO.start(); buildLevel(0); if (!isTouch) canvas.requestPointerLock(); }
+function startGame() {
+  mode = "maze"; document.getElementById("combat").hidden = true;
+  state = "play"; document.getElementById("intro").style.display = "none";
+  AUDIO.start(); buildLevel(0); applyMobileLayout();
+  if (!isTouch) canvas.requestPointerLock();
+}
+
+// ───────────────────────── arena combat mode ─────────────────────────
+let lastShot = 0;
+function fire() {
+  if (mode !== "arena" || !arena || state !== "play" || isSettingsOpen()) return;
+  const now = clock.elapsedTime;
+  if (now - lastShot < 0.2) return;
+  lastShot = now;
+  const dir = new THREE.Vector3(Math.sin(player.yaw) * Math.cos(player.pitch), Math.sin(player.pitch), Math.cos(player.yaw) * Math.cos(player.pitch));
+  const origin = new THREE.Vector3(player.pos.x, player.pos.y + EYE - 0.25, player.pos.z).addScaledVector(dir, 1.4);
+  arena.playerShoot(origin, dir);
+  AUDIO.sfx("shoot");
+}
+
+function buildArena() {
+  mode = "arena"; levelIdx = 0; deaths = 0; sprung = new Set(); riseTimer = 0; lavaPlane = null;
+  for (let k = world.children.length - 1; k >= 0; k--) world.remove(world.children[k]);
+  dynamic.length = 0;
+  const W = 41, H = 41, cx = (W - 1) >> 1, cz = (H - 1) >> 1;   // 41×4 = 164 units across — a big floor
+  const g = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? "#" : "."));
+  for (let r = 4; r < H - 4; r += 6) for (let c = 4; c < W - 4; c += 6) { if (Math.abs(r - cz) < 4 && Math.abs(c - cx) < 4) continue; g[r][c] = "P"; }
+  grid = g; gridH = H; gridW = W;
+  const theme = THEMES[2];   // hellish violet arena
+  scene.fog.color.setHex(theme.fog); hemi.color.setHex(theme.sky); hemi.groundColor.setHex(theme.ground);
+  amb.color.setHex(theme.amb); torch.color.setHex(theme.torch); MAT.wall.color.setHex(theme.wall);
+  const floorGeo = new THREE.PlaneGeometry(TS, TS), wallGeo = new THREE.BoxGeometry(TS, WALL_H, TS);
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    const ch = g[r][c], x = worldX(c), z = worldZ(r);
+    if (ch === ".") { const f = new THREE.Mesh(floorGeo, theme.floor); f.rotation.x = -Math.PI / 2; f.position.set(x, 0, z); f.receiveShadow = true; world.add(f); }
+    else if (ch === "#") { const w = new THREE.Mesh(wallGeo, MAT.wall); w.position.set(x, WALL_H / 2, z); w.castShadow = true; w.receiveShadow = true; world.add(w); }
+    else if (ch === "P") { const p = new THREE.Mesh(new THREE.CylinderGeometry(TS * 0.34, TS * 0.4, WALL_H * 0.85, 16), MAT.pillar); p.position.set(x, WALL_H * 0.42, z); p.castShadow = true; world.add(p); }
+  }
+  if (!arena) arena = createArena({ THREE, scene: world, MAT, glowSprite, audio: AUDIO, worldX, worldZ, bounds: { minX: TS, maxX: worldX(W - 2), minZ: TS, maxZ: worldZ(H - 2) } });
+  arena.spawn(worldX(cx), worldZ(cz));
+  player.pos.set(worldX(cx), 0, worldZ(cz)); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = 100;
+  document.getElementById("combat").hidden = false;
+  HUD.level.textContent = "ARENA"; HUD.name.textContent = "Slay the bosses"; HUD.deaths.textContent = "";
+  updateCombatHUD(arena.bossCount());
+  applyMobileLayout();
+  state = "play"; hideMsg();
+}
+function startArena() { document.getElementById("intro").style.display = "none"; AUDIO.start(); buildArena(); if (!isTouch) canvas.requestPointerLock(); }
+function winArena() { if (state !== "play") return; state = "victory"; flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Click or Space to fight again"); }
+function updateCombatHUD(bossesLeft) {
+  const hp = Math.max(0, player.hp);
+  document.getElementById("hp-fill").style.width = hp + "%";
+  document.getElementById("hp-text").textContent = Math.round(hp);
+  document.getElementById("boss-count").textContent = "BOSSES " + bossesLeft;
+}
+
+// ───────────────────────── settings application ─────────────────────────
+let lastFov = S.fov;
+function applySettings() {
+  renderer.toneMappingExposure = S.brightness;
+  if (bloomPass) bloomPass.strength = S.bloom;
+  const q = S.quality;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, q === "low" ? 1 : q === "med" ? 1.5 : 2));
+  renderer.shadowMap.enabled = q !== "low";
+  const sm = q === "high" ? 2048 : q === "med" ? 1024 : 512;
+  if (sun.shadow.mapSize.width !== sm) { sun.shadow.mapSize.set(sm, sm); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
+  if (AUDIO) { AUDIO.setVolume(S.masterVol); AUDIO.setMusic(S.music); AUDIO.setSfx(S.sfx); }
+  if (S.fov !== lastFov) { targetFov = S.fov; lastFov = S.fov; } BASE_FOV = S.fov;
+  const vig = document.getElementById("vignette"); if (vig) vig.style.display = S.vignette ? "block" : "none";
+  applyMobileLayout();
+  resize();
+}
 
 // ───────────────────────── post-processing (cinematic bloom) ─────────────────────────
 // Wrapped so a CDN miss on the addons degrades gracefully to a plain render.
@@ -466,9 +675,11 @@ function frame() {
     if (state === "play" && player.grounded && hspeed > 0.8) {
       bobPhase += dt * hspeed * 1.3;
       const amp = Math.min(1, hspeed / SPEED);
-      bobY = Math.sin(bobPhase * 2) * 0.09 * amp;
-      const sway = Math.sin(bobPhase) * 0.06 * amp;          // gentle side-to-side
-      swayX = -Math.cos(player.yaw) * sway; swayZ = Math.sin(player.yaw) * sway;
+      if (S.viewBob) {
+        bobY = Math.sin(bobPhase * 2) * 0.09 * amp;
+        const sway = Math.sin(bobPhase) * 0.06 * amp;        // gentle side-to-side
+        swayX = -Math.cos(player.yaw) * sway; swayZ = Math.sin(player.yaw) * sway;
+      }
       stepDist += hspeed * dt;
       if (stepDist > 2.4) { stepDist = 0; AUDIO.step(); }    // footstep on each stride
     } else { stepDist = 2.4; }
@@ -479,27 +690,54 @@ function frame() {
     for (const fn of dynamic) fn(t);
     // pit slabs dropping
     world.traverse((m) => { if (m.userData && m.userData.dropping && m.position.y > -16) { m.position.y -= dt * 30; if (m.position.y < -15) m.visible = false; } });
+    // arena combat — enemies, bosses, projectiles
+    if (mode === "arena" && arena) {
+      if (shootHeld && state === "play") fire();
+      const res = arena.update(dt, player.pos, camera, state === "play");
+      if (state === "play") {
+        if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); updateCombatHUD(res.bossesLeft); if (player.hp <= 0) die("shot"); }
+        else if (res.changed) updateCombatHUD(res.bossesLeft);
+        if (res.win) winArena();
+      }
+    }
     if (flashT > 0) { flashT -= dt; HUD.flash.style.opacity = String(Math.max(0, flashT / 0.4 * 0.55)); }
     if (composer) composer.render(dt); else renderer.render(scene, camera);
   }
 }
 
 setupTouch();
+mountSettings({ onChange: applySettings, onEditLayout: (on) => { editLayout = on; applyMobileLayout(); }, isTouch });
+applySettings();
 frame();
 
 // ───────────────────────── test / verify hooks ─────────────────────────
 // Exposed so the headless harness can drive real physics without a human.
 window.Trap = {
   get state() { return state; }, get deaths() { return deaths; }, get level() { return levelIdx; },
+  get mode() { return mode; }, get hp() { return player.hp; },
   get player() { return player; }, LEVELS, TS,
   start: startGame,
+  startArena,
+  openSettings,
   toggleMute,
-  goto(i) { document.getElementById("intro").style.display = "none"; buildLevel(i); },
+  goto(i) { mode = "maze"; document.getElementById("combat").hidden = true; document.getElementById("intro").style.display = "none"; buildLevel(i); },
   // step the simulation by hand (dt seconds), used by the bot
   step(dt) { tick(dt); },
   // place the player at a tile centre (verifier teleports along the safe path)
   toTile(r, c) { player.pos.set(worldX(c), 0, worldZ(r)); player.vel.set(0, 0, 0); player.grounded = true; },
   setKeys(obj) { Object.assign(keys, obj); },
   classifyTile(r, c) { return classify(tileAt(grid, r, c)); },
+  // arena hooks for the smoke test
+  fire,
+  arenaInfo() { return arena ? arena.info() : null; },
+  arenaNuke() { if (arena) arena.damageAll(99999); },
+  // deterministically advance the arena (the headless harness can't rely on rAF timing)
+  arenaStep(dt) {
+    if (mode !== "arena" || !arena) return player.hp;
+    const res = arena.update(dt, player.pos, camera, true);
+    if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
+    if (res.win) winArena();
+    return player.hp;
+  },
 };
 window.dispatchEvent(new Event("trap-ready"));

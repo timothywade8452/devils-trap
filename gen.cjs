@@ -20,13 +20,42 @@ const NAMES = [
   ["The Long Con",       "Halfway is nowhere."],
   ["No Tells",           "You know the drill by now. You don't."],
   ["The Floor Is Lava",  "Literally. Run."],
+  // ── Act II ──
+  ["Salted Earth",       "Nothing grows here. Especially you."],
+  ["False Bottom",       "Trust nothing under your feet."],
+  ["The Gauntlet",       "Every step is a question. Most answers are no."],
+  ["Spike Garden",       "Bloom where you're planted. Don't."],
+  ["Crush Hour",         "Mind the ceiling. It minds you."],
+  ["The Wrong Turn",     "It's always the wrong turn."],
+  ["Trapdoor Waltz",     "One-two-three, and down you go."],
+  ["Molten Veins",       "The floor runs red here."],
+  ["Pinball",            "You're the ball. Walls win."],
+  ["Ashfall",            "Run. The floor is rising."],
+  // ── Act III ──
+  ["The Meat Grinder",   "In one side. Not out the other."],
+  ["Needlepoint",        "Thread it. Or be threaded."],
+  ["Vanishing Point",    "The exit was never that close."],
+  ["The Switchback",     "Forward is a lie. So is back."],
+  ["Hell's Checkerboard","Black squares. Red squares. All lethal."],
+  ["Launchpad Hell",     "Up is the new down."],
+  ["Crusher's Lullaby",  "Sleep. The ceiling insists."],
+  ["Labyrinthitis",      "Dizzy yet? You will be."],
+  ["No Mercy",           "Everything you learned, weaponized twice."],
+  ["The Devil's Door",   "The last floor. It rises. Run like hell."],
 ];
 
-// per-level interior footprint (cols W x rows H, including the 1-cell border)
+// per-level interior footprint (cols W x rows H, including the 1-cell border) — odd dims
 const DIMS = [
   [9, 9], [9, 11], [11, 11], [11, 13], [11, 13],
   [13, 13], [13, 15], [13, 15], [15, 15], [15, 17],
+  [15, 17], [15, 17], [17, 17], [17, 19], [17, 19],
+  [17, 19], [19, 19], [19, 21], [19, 21], [19, 21],
+  [21, 21], [21, 23], [21, 23], [21, 23], [23, 23],
+  [23, 25], [23, 25], [25, 25], [25, 27], [25, 27],
 ];
+
+// levels that end with the rising-lava finale (one per act)
+const RISING = new Set([9, 19, 29]);
 
 function gen(idx) {
   const [W, H] = DIMS[idx];
@@ -83,9 +112,12 @@ function gen(idx) {
     const [r, c] = baitCells[i];
     set(r, c, i % 3 === 0 ? "^" : "o"); // spike / pit
   }
-  // one launch + one crusher next to the path (later levels), themed surprises
-  if (idx >= 5 && baitCells[wantBait]) { const [r, c] = baitCells[wantBait]; set(r, c, "J"); }
-  if (idx >= 6 && baitCells[wantBait + 1]) { const [r, c] = baitCells[wantBait + 1]; set(r, c, "C"); }
+  // launch pads + crushers next to the path — more of them through the later acts
+  let bi = wantBait;
+  const launches = idx < 5 ? 0 : 1 + Math.floor(idx / 8);
+  const crushers = idx < 6 ? 0 : 1 + Math.floor(idx / 9);
+  for (let i = 0; i < launches && baitCells[bi]; i++, bi++) { const [r, c] = baitCells[bi]; set(r, c, "J"); }
+  for (let i = 0; i < crushers && baitCells[bi]; i++, bi++) { const [r, c] = baitCells[bi]; set(r, c, "C"); }
 
   // alternate the rest of the field between spike / pit so it isn't all one trap
   for (const [r, c] of offCells) if (g[r][c] === "o" && ((r + c) % 2 === 0)) set(r, c, "^");
@@ -127,8 +159,9 @@ function gen(idx) {
     pathLen,
     start: { r: S[0], c: S[1] },
     goal: { r: Gz[0], c: Gz[1] },
-    risingLava: idx === 9,
-    riseTime: idx === 9 ? Math.round(pathLen * 0.9 + 8) : 0,
+    risingLava: RISING.has(idx),
+    riseTime: RISING.has(idx) ? Math.round(pathLen * 0.9 + 8) : 0,
+    tier: Math.floor(idx / 10),     // 0=Act I, 1=Act II, 2=Act III — drives colour theme
   };
 }
 

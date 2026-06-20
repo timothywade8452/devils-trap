@@ -24,7 +24,8 @@ export const LEVELS = [
    "c": 7
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "Decorative Doors",
@@ -52,7 +53,8 @@ export const LEVELS = [
    "c": 7
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "The Floor Lies",
@@ -80,7 +82,8 @@ export const LEVELS = [
    "c": 9
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "Pillars of Salt",
@@ -110,7 +113,8 @@ export const LEVELS = [
    "c": 9
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "Hot Floor",
@@ -140,7 +144,8 @@ export const LEVELS = [
    "c": 9
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "Launch Window",
@@ -170,7 +175,8 @@ export const LEVELS = [
    "c": 11
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "Overhead",
@@ -202,7 +208,8 @@ export const LEVELS = [
    "c": 11
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "The Long Con",
@@ -234,7 +241,8 @@ export const LEVELS = [
    "c": 11
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "No Tells",
@@ -246,8 +254,8 @@ export const LEVELS = [
    "#Jo^o^.^o^o^o~#",
    "#o^o^o..^o^o~~#",
    "D^o^o^P.o^o^o~D",
-   "#o^o^o^.^o^o^o#",
-   "#^o^o^o...oCo^#",
+   "#o^o^oC.^o^o^o#",
+   "#^o^o^o...oJo^#",
    "#o^o^oPo^...^o#",
    "#^o^o^o^o^o..^#",
    "#o^o^o^oPP^o..#",
@@ -266,7 +274,8 @@ export const LEVELS = [
    "c": 13
   },
   "risingLava": false,
-  "riseTime": 0
+  "riseTime": 0,
+  "tier": 0
  },
  {
   "name": "The Floor Is Lava",
@@ -276,14 +285,14 @@ export const LEVELS = [
    "#S..o^o^o^oPo^#",
    "#o^.Jo^o^o^o^o#",
    "#^o..^o^o^o^o^#",
-   "#o^o..^o^o^o^o#",
-   "#^o^^..^o^o^o^#",
+   "#o^o..Co^o^o^o#",
+   "#^o^^..Co^o^o^#",
    "#o^oPo.o^o^o^o#",
    "#^o^~^..o^o^o^#",
    "#o^~~~^.^o^o^o#",
    "#^o^~^P.o^o^o^#",
    "#o^oPo^..o^o^o#",
-   "#^o^o^oC.....^#",
+   "#^o^o^oJ.....^#",
    "#o^o^o^oPo^o.^#",
    "#^o^o^o^o^P^.^#",
    "#o^o^o^o^o^o.^#",
@@ -300,7 +309,800 @@ export const LEVELS = [
    "c": 13
   },
   "risingLava": true,
-  "riseTime": 32
+  "riseTime": 32,
+  "tier": 0
+ },
+ {
+  "name": "Salted Earth",
+  "taunt": "Nothing grows here. Especially you.",
+  "grid": [
+   "####D####D#####",
+   "#S....C^o^o^o^#",
+   "#o^o^.^^^o^o^o#",
+   "#^o^o...o^o^o^#",
+   "#P^o^o^.^o^o^o#",
+   "#^o^o^o...o^o^#",
+   "#o^o^o^oJ..o^o#",
+   "#^oPo^o^o^..^^#",
+   "#o^o^o^o^oJ.Co#",
+   "#^o^oPo^o^^.o^#",
+   "#o^o^o^o^o^...#",
+   "#^o^o^o^o^o^o.D",
+   "Do^~^P^o^o^o^.#",
+   "#^~~~^o^oPo^P.#",
+   "#o^~^o^o^o^o^.D",
+   "#^o^o^o^P^o^oG#",
+   "##########D####"
+  ],
+  "pathLen": 27,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 15,
+   "c": 13
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "False Bottom",
+  "taunt": "Trust nothing under your feet.",
+  "grid": [
+   "######D##DD####",
+   "#So^o^o^o^o^o^#",
+   "#..o^o~o^o^o^o#",
+   "#C..C~~~oPo^o^#",
+   "#o^..o~o^o^o^o#",
+   "#^o^.^o^o^o^o^#",
+   "#o^o..^o^o^o^o#",
+   "#^o^o.J^o^o^o^#",
+   "#o^o^.^^^o^o^o#",
+   "#^P^o......^o^#",
+   "#o^o^o^^^o.oJo#",
+   "#^o^P^P^o^...^#",
+   "Do^o^o^o^o^o.o#",
+   "#PP^o^o^o^o^.^#",
+   "#o^o^o^o^o^o..#",
+   "#^o^o^o^o^P^oG#",
+   "#######DD######"
+  ],
+  "pathLen": 27,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 15,
+   "c": 13
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "The Gauntlet",
+  "taunt": "Every step is a question. Most answers are no.",
+  "grid": [
+   "###########DD####",
+   "#S.^o^o^o^o^o^o^#",
+   "#o....^o^P^P^o^o#",
+   "#^oCo.o^o^o^o^o^#",
+   "#o^o^.^o^o^oPo^o#",
+   "#^o^J.o^o^o^o^o^#",
+   "#o^o^...^o^o^^^o#",
+   "#^o^o^P.........#",
+   "#o^o^o^o^JCo^o^.#",
+   "#^o^o^oPo^o^o~~.#",
+   "#o^o^o^o^o^o~~~.D",
+   "D^o^o^o^o^o^o~o.#",
+   "#o^o^o^o^o^o^P^.D",
+   "#^oPo^o^o^o^o^^.#",
+   "#o^o^o^o^o^o^o^.#",
+   "#Po^o^o^o^o^o^oG#",
+   "###D#D###########"
+  ],
+  "pathLen": 29,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 15,
+   "c": 15
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "Spike Garden",
+  "taunt": "Bloom where you're planted. Don't.",
+  "grid": [
+   "#########DD######",
+   "#So^o^o^~~o^oPo^#",
+   "#..o^o^o~~~o^o^oD",
+   "#^...^o^o~o^o^o^#",
+   "#o^o.J^o^o^o^o^o#",
+   "#^o^.^o^o^o^o^o^#",
+   "#o^o.o^o^P^o^o^oD",
+   "#^o^...Co^o^o^o^#",
+   "#o^o^o.o^o^oPo^o#",
+   "#^oPo^.^o^o^o^o^#",
+   "Do^P^o....Po^o^o#",
+   "#^o^o^o^o.o^o^o^D",
+   "#o^o^o^o^.Co^o^o#",
+   "#^o^o^o^o.o^o^o^#",
+   "#o^o^o^o^.^oPo^o#",
+   "#^o^oPo^o..^o^o^#",
+   "#o^o^o^o^o.^^o^oD",
+   "#^o^o^o^o^.....G#",
+   "#################"
+  ],
+  "pathLen": 31,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 17,
+   "c": 15
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "Crush Hour",
+  "taunt": "Mind the ceiling. It minds you.",
+  "grid": [
+   "#######D######D##",
+   "#S~~~^o^o^o^o^o^#",
+   "#.~~^o^o^o^o^o^oD",
+   "#.o^o^o^o^o^o^o^#",
+   "#.^oPo^o^o^o^o^o#",
+   "#.^^o^o^o^o^P^o^#",
+   "#.^o^P^o^o^o^o^o#",
+   "#.o^o^o^o^o^o^o^#",
+   "#.^o^o^o^o^o^o^o#",
+   "#.o^o^o^o^o^o^o^D",
+   "#.^o^o^P^o^o^o^o#",
+   "#.o^P^o^o^o^o^o^#",
+   "D.^oPo^o^oPo^o^o#",
+   "#.^^o^o^o^o^o^o^D",
+   "#.^o^o^o^o^o^o^o#",
+   "#.o^oPo^o^o^oPo^#",
+   "#..oCo^o^o^CJo^J#",
+   "#^.............G#",
+   "########D####D###"
+  ],
+  "pathLen": 31,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 17,
+   "c": 15
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "The Wrong Turn",
+  "taunt": "It's always the wrong turn.",
+  "grid": [
+   "##############D##",
+   "#SJ^o^o^o^o^o^o^#",
+   "#.^o^oPP^o^~~o^oD",
+   "#.o^J^o^o^~~~~o^#",
+   "#......o^o^~^o^o#",
+   "#^o^o^...^P^o^o^#",
+   "#o^oPo^o.o^o^o^o#",
+   "#^o^oPo^..^^o^o^#",
+   "#o^o^o^o^.^o^o^o#",
+   "#^o^o^o^o.o^o^o^#",
+   "#o^o^o^o^.^o^o^o#",
+   "D^oPo^o^o..^o^o^#",
+   "Do^o^o^o^o.^^o^o#",
+   "#^o^o^o^o^....P^#",
+   "#o^o^o^o^oCo^..o#",
+   "#^o^o^o^o^o^o^.^#",
+   "#o^o^oPo^o^o^C..D",
+   "#^o^o^o^P^o^o^^G#",
+   "#####D##D##D#####"
+  ],
+  "pathLen": 31,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 17,
+   "c": 15
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "Trapdoor Waltz",
+  "taunt": "One-two-three, and down you go.",
+  "grid": [
+   "######D#######D####",
+   "#S.^o^oPoPo^o^o^o^#",
+   "D^.^^o^o^oPo^o^o^o#",
+   "#^.^o^P^o^o^o^o^o^#",
+   "#o...o^o^P^o^o^o^o#",
+   "#^oC.^o^o^o^o^o^o^#",
+   "#o^o..^o^o^o^o^o^oD",
+   "#^o^o.oPo^o^o^o^o^D",
+   "#o^o^.^o^o^o^o^o^o#",
+   "#^o^o...o^o^o^o^o^D",
+   "#o^P^J^...^o^J^o^o#",
+   "#^o^o^o^o.......o^#",
+   "#o^o^o^o^o^J^o^.^o#",
+   "#^o^o^o^o^o^o^o.o^#",
+   "#o^o^o^o~o^o^o^.^^#",
+   "#^o^o^o~~~oPo^o...#",
+   "#o^o^o^~~o^o^o^^P.D",
+   "#^o^o^o^P^o^o^o^oG#",
+   "###########D##D####"
+  ],
+  "pathLen": 33,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 17,
+   "c": 17
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "Molten Veins",
+  "taunt": "The floor runs red here.",
+  "grid": [
+   "##D################",
+   "#So^o^o^o^o^o^o^o^#",
+   "#.^o^o^o^o^o^o^o^o#",
+   "#.o^o^o^o^o^o^o^o^#",
+   "#..P^o^o^oPo^o^P^oD",
+   "#^.^o^o^o^o^o^o^o^#",
+   "#o..^o^o^o^o^oPo^oD",
+   "#^o.C^o^o^o^o^o^o^#",
+   "#o^..^^o^o^o^o^o^o#",
+   "#PoP.^o^o^o^o^o^o^D",
+   "#o^o.....oJo^o^o^o#",
+   "D^o^o^^^...^o^o^o^#",
+   "#o^o^o^o^o.o^o^o^o#",
+   "#^o^o^P^oJ.Jo^o^o^#",
+   "#o^o^o^o^^.o^C^o^o#",
+   "#^o^o^o^o^....^^o^D",
+   "#o^o^o^o^o^P^.^o^o#",
+   "#^o^~^o^o^o^o...o^#",
+   "#o^o~~^o^o^o^o^..o#",
+   "#^o~~~o^P^P^o^o^.G#",
+   "##D#D###########D##"
+  ],
+  "pathLen": 35,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 19,
+   "c": 17
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "Pinball",
+  "taunt": "You're the ball. Walls win.",
+  "grid": [
+   "#########D#########",
+   "#So^P^o^o^o^P^o^o^#",
+   "D.^o^o^P^o^o^o^o^o#",
+   "#.^Po^o^P^o^o^o^o^#",
+   "#..J^o^o^o^o^o^o^o#",
+   "D^.^o^o^o^o^o^o^o^#",
+   "#o.^^o^o^o^o^o^o^o#",
+   "#^..o^o^o^o^o^P^oP#",
+   "#oC...^o^C^o^o^o^oD",
+   "#^o^o.......o^oPo^#",
+   "#o^o^J^^^o^.^o^o^o#",
+   "#^o^o^o^o^o..^o^o^D",
+   "#o^o^o^o^o^^..^o^o#",
+   "#^o^o^o^o^oPC.PPo^D",
+   "#o^o^o^o^o^o^.^o^o#",
+   "#^o^o^o^o^o^o...o^#",
+   "#o^o^o^o^o^o^o^...#",
+   "#~~^o^o^o^o^o^o^o.#",
+   "#~~o^o^o^o^o^o^o^.D",
+   "#~~^o^o^o^o^o^o^JG#",
+   "###D##########DD###"
+  ],
+  "pathLen": 35,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 19,
+   "c": 17
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 1
+ },
+ {
+  "name": "Ashfall",
+  "taunt": "Run. The floor is rising.",
+  "grid": [
+   "###D##D#DD######D##",
+   "#S.^o^o^o^o^o^o^o^#",
+   "#o.o^o^o^o^o^P^o^o#",
+   "#^.^o^o^o^o^o^o^o^#",
+   "#^..^o^o^o^o^o^o^o#",
+   "#^o.J^o^o^o^o^o^o^#",
+   "#o^.^o^o^o^o^o^o^o#",
+   "#^J..^PCP^o^o^o^o^#",
+   "Do^C....Po^o^o^o^o#",
+   "#^o^o^o...o^^^o^o^#",
+   "#o^o^o^o^.....Po^o#",
+   "#^o^o^o^o^oJo..^o^#",
+   "#o^o^o^o~~^o^o..^o#",
+   "#^o^o^o~~~~^o^P..^#",
+   "Do^o^o^o^~^o^oPo..D",
+   "#^o^o^o^o^o^o^o^o.#",
+   "#o^oPo^o^o^o^o^o^.#",
+   "#^o^o^o^o^o^o^P^^.#",
+   "#o^o^o^P^o^oPo^o^.#",
+   "#^o^o^o^o^o^o^o^oG#",
+   "##D############D###"
+  ],
+  "pathLen": 35,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 19,
+   "c": 17
+  },
+  "risingLava": true,
+  "riseTime": 40,
+  "tier": 1
+ },
+ {
+  "name": "The Meat Grinder",
+  "taunt": "In one side. Not out the other.",
+  "grid": [
+   "###D##D##D####D######",
+   "#S..o^oPo^o^o^o^o^o^#",
+   "#^^.^o^o^o^P^o^o^o^o#",
+   "#P^.o^o^o^oPo^oPo^o^#",
+   "#o^...Jo^o^o^o^o^o^o#",
+   "D^o^o..^o^o^o^o^o^o^#",
+   "#o^o^^..^o^oCo^o^o^oD",
+   "#^o^o^o......Jo^oPo^#",
+   "#o^o^o^o^P^o..Co^o^o#",
+   "#^o^o^o^o^o^o..Po^o^D",
+   "#o^o^o^o^o^o^o...C^o#",
+   "#^oPo^o^o^o^o^o^..^^#",
+   "#o^o^o^o^o^o^o^o^.^o#",
+   "#^o^~~o^o^o^o^o^o.^^#",
+   "Do^~~~~o^o^o^o^o^.^o#",
+   "#^o^o~o^o^o^o^o^J...#",
+   "Do^o^oPo^o^o^o^o^^^.#",
+   "#^o^oPo^o^o^o^o^o^o.#",
+   "#o^o^o^o^o^o^o^oPo^.#",
+   "#^o^o^o^o^o^o^o^o^oG#",
+   "#####D#######D#######"
+  ],
+  "pathLen": 37,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 19,
+   "c": 19
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "Needlepoint",
+  "taunt": "Thread it. Or be threaded.",
+  "grid": [
+   "########D####D#######",
+   "#S..o^o^o^o^o^o^o^o^#",
+   "#o^..oPo^o^o^o^o^o^o#",
+   "#^o^.^o^o^o^o^o^P^o^D",
+   "#o^o..Co^o^o^o^o^o^o#",
+   "#^o^^.o^o^o^o^o^o^o^#",
+   "#o^o^.^o^o^o^oPo^o^o#",
+   "DPo^^.C^o^o^o^o^o^o^D",
+   "#o^o^.^oPo^o^o^oPo^o#",
+   "#^o^o.o^o^o^o^o^o^o^#",
+   "#o^o^.^o^P^o^o^o^o^o#",
+   "#^o^o.o^oPo^o^o^o^o^D",
+   "#o^oJ..o^o^o^o^o^o^o#",
+   "D^o^~~.^o^o^o^o^o^o^#",
+   "#o^oP~..Po^o^o^o^o^o#",
+   "D^o^~~~.o^o^o^o^o^o^#",
+   "#o^o^~^..o^o^o^J^J^o#",
+   "D^o^o^o^..........o^#",
+   "#o^o^o^oCo^P^o^^^.^oD",
+   "#^o^o^o^o^o^o^o^^...#",
+   "#o^o^o^o^o^o^o^o^o^.D",
+   "#^o^o^o^o^oPo^o^o^oG#",
+   "#####################"
+  ],
+  "pathLen": 39,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 21,
+   "c": 19
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "Vanishing Point",
+  "taunt": "The exit was never that close.",
+  "grid": [
+   "###D##D##D###########",
+   "#So^o^o^o^o^o^oPo^o^#",
+   "#.^o^o^o^P^o^o^o^o^o#",
+   "#....^o^o^o^o^o^o^o^#",
+   "#^^J....^o^o^o^o^o^oD",
+   "D^o^^^o.o^o^o^o^o^o^#",
+   "#o^o^o^.^o^o^o^o^o^o#",
+   "#^o^o^o.C^o^o^o^oPo^#",
+   "#o^P^o^..^^o^o^~~o^o#",
+   "#Po^o^o^..o^o^P~~~o^#",
+   "#o^o^o^oJ.^o^o^~~o^o#",
+   "D^o^o^o^J.^^o^o^o^o^#",
+   "#o^o^o^o^...^o^o^o^o#",
+   "#^o^oPo^o^^.P^o^o^o^D",
+   "#o^o^o^o^o^.^o^P^o^o#",
+   "#^o^o^o^o^o.o^o^o^o^#",
+   "#oPo^o^o^oC...^o^oPo#",
+   "#^o^o^o^oPo^o..Po^o^#",
+   "#o^o^o^o^o^o^o..^o^o#",
+   "#^o^o^o^o^o^o^o..^o^#",
+   "#o^o^o^o^o^o^o^C.o^o#",
+   "#^o^o^o^o^o^o^o^...G#",
+   "#####D##D##D#D####D##"
+  ],
+  "pathLen": 39,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 21,
+   "c": 19
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "The Switchback",
+  "taunt": "Forward is a lie. So is back.",
+  "grid": [
+   "######D#D######D#####",
+   "#S....o^PPo^o^o^o^o^#",
+   "#oJo^....o^o^P^o^o^o#",
+   "#^o^o^oJ.^o^o^o^o^o^D",
+   "#o^o^oPC.o^o^o^o^o^o#",
+   "#^o^o^o^.^o^o^o^o^o^D",
+   "#o^o^o^o..Jo^o^o^o^o#",
+   "#^o^o^o^o.o^o^o^o^o^#",
+   "Do^o^o^o^..o^o^o^o^o#",
+   "#^o^o^o^o^.^o^o^o^o^#",
+   "#o^o^o^o^o.oCo^o^o^oD",
+   "#Po^o^o^o^...^oPo^o^D",
+   "#o^o^o^o^o^o.o^o^o^o#",
+   "#^P^oPo^o^o^.^^^o^o^D",
+   "#o^o^o^o^o^^....^o^o#",
+   "#^o^o^o^oPo^^~~.o^o^#",
+   "#o^P^o^o^o^o^~~.^o^o#",
+   "#^o^o^o^oPo^o~~.o^o^#",
+   "#o^o^o^o^P^o^o~.^o^o#",
+   "#^o^o^o^o^o^o^^..Co^#",
+   "#o^o^o^o^o^o^o^o...^#",
+   "#^o^P^o^o^o^o^o^^^.G#",
+   "###D###D#########D###"
+  ],
+  "pathLen": 39,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 21,
+   "c": 19
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "Hell's Checkerboard",
+  "taunt": "Black squares. Red squares. All lethal.",
+  "grid": [
+   "##D########D########D##",
+   "#S.^o^o^o^o^o^o^P^o^o^#",
+   "#o..^o^o^o^o^oPo^o^o^o#",
+   "#^C..^o^o^o^o^o^o^o^o^#",
+   "#o^P.o^oPo^o^o^o^o^o^o#",
+   "#^o^.^o^o^o^o^o^o^o^oP#",
+   "#o^o..^^^o^o^o^o^o^o^o#",
+   "#^P^^......Co^o^o^o^o^#",
+   "#o^o^o^J^o..^o^o^P^o^oD",
+   "#^o^o^o^o^o.o^o^o^o^oPD",
+   "Do^o^o^o^oP..^^o^o^o^o#",
+   "#^o^o^o^o^o^...^o^o^o^#",
+   "#o^o^o^o^o^o^o..^o^o^o#",
+   "#Po^o^o^o^o^o^^.o^o^o^#",
+   "#P^o^o^o^o^o^o^.^o^o^o#",
+   "#^oPo^o^o^o^o^^...o^o^#",
+   "#o^o^o^o^o^o^o^oJ.....#",
+   "#^o^P^o^o^o^oPo^o^o^o.#",
+   "Do^o^o^o^o^o^o^o^o^o^.#",
+   "D^o^o^o^~^o^o^o^o^o^J.#",
+   "#o^o^o~~~~^o^o^o^o^o^.D",
+   "#^o^o^o~~~o^o^o^o^o^JG#",
+   "##D#D####D##########D##"
+  ],
+  "pathLen": 41,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 21,
+   "c": 21
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "Launchpad Hell",
+  "taunt": "Up is the new down.",
+  "grid": [
+   "####D##D###D#D#########",
+   "#S^^o^o^o^o^o^o^o^o^o^#",
+   "#.^o^o^o^o^P^o^o^o^o^o#",
+   "D..^o^o^o^o^o^o^o^o^o^#",
+   "#o....Jo^o^o^o^o^P^o^o#",
+   "#^o^o..^o^o^o^o^P^o^o^#",
+   "#o^o^o.o^o^o^o^o^o^o^o#",
+   "#^o^o^..o^o^o^o^o^o^o^#",
+   "#o^o^o^.^o^o^o^o^o^o^o#",
+   "D^o^o^o.o^o^o^o^o^o^o^#",
+   "#o^o^o^...^o^o^o^o^o^oD",
+   "#^o^o^o^C.C^o^o^o^o^o^#",
+   "#o^P^o^oJ.Po^o^o^o^o^o#",
+   "#^o^o^oP^.o^o^o^o^o^o^#",
+   "#o^o^o^o^.^o^o^o^o^o^o#",
+   "#^o^o^o^o.o^o^o^o^o^o^#",
+   "#oPoPo^o^.^o^J^o^P^o^o#",
+   "#^o^o^o^o.....o^o^o^o^#",
+   "#o^o^o^~^o^o^...Co^o^o#",
+   "#^o^o^o~~^o^o^^.^Po^o^#",
+   "#o^o^o~~~~^o^o^.^o^o^oD",
+   "#^oPo^o~~^o^o^o..Jo^P^#",
+   "#o^o^o^o^o^o^o^o.o^o^oD",
+   "#^o^o^o^o^o^PPo^.....G#",
+   "######D########DD#D####"
+  ],
+  "pathLen": 43,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 23,
+   "c": 21
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "Crusher's Lullaby",
+  "taunt": "Sleep. The ceiling insists.",
+  "grid": [
+   "######DD###D###DD###D##",
+   "#S.^o^o^o^o^P^o^o^o^o^#",
+   "#^...C^o^o^o^o^o^o^o^o#",
+   "#^oC.^o^o^o^o^o^o^o^o^#",
+   "#o^o..^o^o^o^o^o^o^o^o#",
+   "#^o^o......^^^PPo^o^o^#",
+   "#o^o^J^oCo....^o^o^o^o#",
+   "#^o^o^o^o^o~~.oJo^o^o^#",
+   "#P^o^o^o^o^~~....oJ^^o#",
+   "D^o^o^o^o^o~~~o^......#",
+   "#o^o^o^o^o^o~o^o^o^o^.#",
+   "#^o^o^o^o^o^o^o^o^o^o.#",
+   "DoPo^o^o^oPo^o^o^o^o^.D",
+   "D^o^o^o^o^o^o^o^o^o^^.#",
+   "#o^o^o^o^o^o^o^o^o^o^.#",
+   "#^o^o^o^o^oPoPo^P^o^^.#",
+   "#o^o^o^o^o^o^P^o^o^o^.#",
+   "#^o^o^o^o^o^o^o^o^o^o.#",
+   "#o^o^o^o^o^o^o^o^o^o^.#",
+   "#^o^o^o^o^o^o^o^o^o^J.#",
+   "#o^oPo^o^oPP^o^o^o^o^.#",
+   "#^o^o^o^o^o^o^o^o^o^o.#",
+   "#o^o^o^o^o^o^o^o^o^P^.#",
+   "#^o^o^o^o^o^o^o^o^P^oG#",
+   "##DDD######D###########"
+  ],
+  "pathLen": 43,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 23,
+   "c": 21
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "Labyrinthitis",
+  "taunt": "Dizzy yet? You will be.",
+  "grid": [
+   "######DD###D######D######",
+   "#S^^o^o^o^o^o^o^o^o^o^o^#",
+   "D.^JPo^P^o^o^o^o^o^P^o^oD",
+   "#...o^o^o^o^o^o^P^o^o^o^#",
+   "#^^.^o^o^o^o^o^o^o^o^o^o#",
+   "#^o.o^o^o^o^o^o^o^o^o^o^#",
+   "#oP.^o^o^o^o^o^o^o^o^o^o#",
+   "#^o..Jo^o^o^o^o^o^o^o^o^D",
+   "Do^o.o^o^o^o^o^o^o^o^o^o#",
+   "#^o^..CJP^o^~P~^o^oPo^o^#",
+   "#o^o^...^o^~~~~~^o^o^o^oD",
+   "#^o^o^o.^^o^~~~^o^o^o^o^#",
+   "#o^o^o^...^o^o^o^o^o^o^o#",
+   "#^o^o^o^^..^o^o^o^o^o^o^#",
+   "#o^o^P^P^C....^o^o^o^o^o#",
+   "#^o^o^o^o^o^o.^^o^o^o^o^#",
+   "#o^o^o^o^o^o^..o^o^o^o^oD",
+   "D^o^P^o^o^o^o^.^o^o^o^o^#",
+   "#o^o^o^P^o^o^o.o^o^o^o^o#",
+   "#^o^o^o^o^o^o^.^o^o^o^o^D",
+   "#o^o^o^o^oPo^o.o^o^o^o^o#",
+   "#^o^o^P^o^o^o^.^o^o^o^o^#",
+   "#o^o^o^o^P^o^J....^o^C^o#",
+   "#^o^o^o^o^o^o^o^o......G#",
+   "##################DD#####"
+  ],
+  "pathLen": 45,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 23,
+   "c": 23
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "No Mercy",
+  "taunt": "Everything you learned, weaponized twice.",
+  "grid": [
+   "##D#######D##############",
+   "#So^o^o^o^o^o^o^o^o^P^o^#",
+   "#.^o^o^o^P^o^o^o^o^o^oPo#",
+   "#....Co^o^o^o^o^o^o^o^o^#",
+   "#o^^....^o^o^o^o^o^o^o^o#",
+   "#^o^o^J..^o^o^o^o^o^o^o^#",
+   "#~^o^o^^.o^o^o^o^o^o^o^o#",
+   "D~~^o^oJ.^o^^^o^o^o^o^o^#",
+   "D~~~^o^o.......o^o^o^o^o#",
+   "#~~^o^o^oPo^o^..J^o^oPo^#",
+   "#o^oPo^o^o^o^oC.Co^o^o^o#",
+   "#^o^o^o^o^o^oP^.o^o^o^o^#",
+   "#o^o^o^o^o^o^o^.^o^o^o^o#",
+   "D^o^o^o^o^o^o^o.o^o^o^o^#",
+   "Do^o^o^o^o^oPo^....o^o^o#",
+   "#^o^o^o^o^o^o^o^o^.^o^o^#",
+   "#o^o^o^o^o^o^o^o^J......#",
+   "#^o^o^o^oPo^o^o^o^o^o^o.#",
+   "#o^o^P^o^o^o^P^o^o^o^o^.#",
+   "D^o^o^o^o^o^o^o^o^o^oPo.#",
+   "Do^o^o^o^o^o^o^o^o^o^P^.D",
+   "#^o^o^o^o^o^o^o^o^o^o^o.#",
+   "#P^o^o^o^o^o^o^o^oPo^o^.D",
+   "#^P^o^o^o^o^o^o^o^o^o^C.D",
+   "#o^o^o^o^o^o^o^o^o^o^o^.#",
+   "#^o^o^o^o^o^o^o^o^o^o^^G#",
+   "###########DD#D#D########"
+  ],
+  "pathLen": 47,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 25,
+   "c": 23
+  },
+  "risingLava": false,
+  "riseTime": 0,
+  "tier": 2
+ },
+ {
+  "name": "The Devil's Door",
+  "taunt": "The last floor. It rises. Run like hell.",
+  "grid": [
+   "##########DD##D##########",
+   "#S^^o^o^o^o^o^o^o^o^o^P^#",
+   "#.^o^o^o^o^o^o^o^o^o^o^o#",
+   "#......^o^o^o^o^o^o^o^o^D",
+   "#o^oP^.o^o^o^o^o^o^o^o^o#",
+   "#^o^oJ.^o^o^o^oPo^o^o^o^D",
+   "#o^o^o...C^P^o^o^o^o^o^o#",
+   "#^o^o^o^.^o^o^o^o^o^o^o^#",
+   "Do^o^o^^.o^o^o^o^oPo^o^o#",
+   "#^o^o^o^.^o^o^o^o^o^o^o^#",
+   "#o^o^o^^.o^o^o^o^o^o^o^o#",
+   "D^P^o^o^..C^o^o^o^o^o^o^#",
+   "#o^o^o^o^.Po^o^o^o^o^o^o#",
+   "#^o^o^o^o.P^^^P^o^o^o^o^D",
+   "Do^o^o^o^............o^o#",
+   "#^o^o^oPo^o^oCo^o^JP.^o^#",
+   "#o^o^o^o^o^o^o^o^o^o.J^o#",
+   "#^o~o^o^o^o^o^o^o^oC...^#",
+   "Do~~~P^o^o^o^o^o^o^o^o.o#",
+   "#^~~~^o^o^o^o^o^o^o^o^..D",
+   "#o^~^o^o^o^o^o^o^o^o^o^.#",
+   "D^o^o^o^o^o^o^P^o^o^o^o.#",
+   "#o^o^o^o^oPo^o^o^o^o^o^.#",
+   "#Po^o^o^o^o^o^o^o^o^o^o.#",
+   "#o^o^o^o^o^o^o^o^o^o^o^.#",
+   "#^o^o^o^o^o^o^o^o^o^P^oG#",
+   "########D#D###########D##"
+  ],
+  "pathLen": 47,
+  "start": {
+   "r": 1,
+   "c": 1
+  },
+  "goal": {
+   "r": 25,
+   "c": 23
+  },
+  "risingLava": true,
+  "riseTime": 50,
+  "tier": 2
  }
 ];
 export default LEVELS;

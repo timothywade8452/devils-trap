@@ -133,6 +133,40 @@ if (booted) {
     return out;
   });
   for (const n of naiveResults) ok(n.died, `L${n.i + 1} NAIVE bot dies (state=${n.state})`);
+
+  // ── ARENA combat smoke test ──
+  console.log("\n=== PART C · arena combat (live) ===");
+  const arenaBoot = await page.evaluate(() => {
+    window.Trap.startArena();
+    const info = window.Trap.arenaInfo();
+    return { mode: window.Trap.mode, hp: window.Trap.hp, bosses: info && info.bosses };
+  });
+  ok(arenaBoot.mode === "arena", "arena mode entered");
+  ok(arenaBoot.bosses === 3, `3 bosses spawned (${arenaBoot.bosses})`);
+  ok(arenaBoot.hp === 100, "player starts at 100 HP");
+
+  // firing spawns player bubbles (added synchronously by the real shoot path)
+  const fired = await page.evaluate(() => { window.Trap.fire(); return window.Trap.arenaInfo().playerProjectiles; });
+  ok(fired >= 1, `firing spawns a bubble (${fired})`);
+
+  // drive the arena deterministically — bosses fire, projectiles fly, player takes damage
+  const afterRun = await page.evaluate(() => {
+    let hp = 100, maxEnemy = 0;
+    for (let i = 0; i < 200 && hp >= 100; i++) { hp = window.Trap.arenaStep(0.033); maxEnemy = Math.max(maxEnemy, window.Trap.arenaInfo().enemyProjectiles); }
+    return { hp, maxEnemy };
+  });
+  ok(afterRun.maxEnemy > 0, `bosses/drones fire projectiles (${afterRun.maxEnemy} in flight)`);
+  ok(afterRun.hp < 100, `enemy fire damages the player (HP ${afterRun.hp})`);
+
+  // fresh arena, kill all bosses through the real death/win pipeline
+  const won = await page.evaluate(() => {
+    window.Trap.startArena();        // reset: full HP, 3 bosses, state=play
+    window.Trap.arenaNuke(); window.Trap.arenaStep(0.033);
+    return { state: window.Trap.state, bosses: window.Trap.arenaInfo().bosses };
+  });
+  ok(won.bosses === 0, "all bosses cleared");
+  ok(won.state === "victory", `arena win triggers (state=${won.state})`);
+  ok(errors.length === 0, "no console errors in arena" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
 }
 
 await browser.close();
