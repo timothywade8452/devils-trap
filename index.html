@@ -17,8 +17,9 @@
 
     <div class="cta">
       <a href="play.html"><button>▶ PLAY NOW</button></a>
-      <a href="#how"><button class="ghost">HOW IT WORKS</button></a>
+      <a href="#board"><button class="ghost">🏆 LEADERBOARD</button></a>
     </div>
+    <p id="hello" class="tag" style="min-height:1.2em;font-size:15px"></p>
 
     <div class="grid">
       <div class="box"><h3>One real exit</h3><p>Reach the glowing orb. The doors carved into the walls are <i>decorative</i> — they go nowhere. Chasing them is how you die.</p></div>
@@ -39,6 +40,11 @@
     Fire back with glowing <b>energy bubbles</b> that streak across the field. Dodge, circle the cover
     pillars, and drop all three before they drop you.</p>
 
+    <h2 id="board">🏆 Leaderboard</h2>
+    <p style="opacity:.7;line-height:1.6;font-size:14px">Global top players — points for clearing floors &amp; killing bosses, with death counts. Every named player who plays even one floor is ranked.</p>
+    <div id="lb-host" class="lb-host"><p class="lb-empty">Loading leaderboard…</p></div>
+    <div class="cta" style="margin-top:18px"><button id="change-name" class="ghost">✎ Change name</button></div>
+
     <h2>Settings &amp; mobile</h2>
     <p style="opacity:.82;line-height:1.7">Full in-game <b>settings</b> (⚙) — volume, brightness, bloom, quality, move speed, look
     sensitivity, field of view, and more. <b>100% mobile</b>: on-screen joystick or D-pad, jump / sprint / fire,
@@ -53,5 +59,15 @@
       Part of the <a href="https://trpper11.github.io/devils-lie/">Devil's</a> series.
     </footer>
   </div>
+
+  <script type="module">
+    import { ensureName, getProfile, openNameEditor, flag } from "./profile.js";
+    import { renderTopInto } from "./leaderboard.js";
+    const host = document.getElementById("lb-host");
+    const refresh = () => renderTopInto(host, 15).catch(() => {});
+    const hello = () => { const p = getProfile(); const h = document.getElementById("hello"); if (p && p.name && h) h.textContent = `Welcome, ${flag(p.cc)} ${p.name}.`; };
+    ensureName().then(() => { hello(); refresh(); });   // capture name even on the landing page
+    document.getElementById("change-name").addEventListener("click", () => openNameEditor(() => { hello(); refresh(); }));
+  </script>
 </body>
 </html>

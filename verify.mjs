@@ -75,8 +75,11 @@ console.log("\n=== PART B · live engine (headless chromium) ===");
 const browser = await chromium.launch();
 const page = await browser.newPage();
 const errors = [];
-page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-page.on("pageerror", (e) => errors.push(String(e)));
+// ignore third-party resource failures (e.g. the IP-geo API is blocked for datacenter IPs) —
+// those aren't game bugs; we still catch all real JS exceptions via pageerror.
+const externalNoise = (s) => /Failed to load resource/i.test(s) || /ipwho\.is|geojs\.io|jsonblob\.com/i.test(s);
+page.on("console", (m) => { if (m.type() === "error" && !externalNoise(m.text())) errors.push(m.text()); });
+page.on("pageerror", (e) => { if (!externalNoise(String(e))) errors.push(String(e)); });
 
 await page.goto(`http://localhost:${PORT}/play.html`, { waitUntil: "networkidle" });
 await page.waitForFunction(() => window.Trap && window.Trap.LEVELS, null, { timeout: 15000 }).catch(() => {});
@@ -165,7 +168,7 @@ if (booted) {
     const locked = window.Trap.arenaInfo().lock;
     const hp0 = window.Trap.arenaInfo().bossHp;
     let dropped = 0;
-    for (let i = 0; i < 150 && window.Trap.state === "play"; i++) { const inf = window.Trap.arenaAutoStep(0.033); dropped = hp0 - inf.bossHp; }
+    for (let i = 0; i < 150 && window.Trap.state === "play"; i++) { const inf = window.Trap.arenaAutoStep(0.033, true); dropped = hp0 - inf.bossHp; }
     return { locked, hp0, dropped };
   });
   ok(assist.locked, "auto-aim acquires a target lock");

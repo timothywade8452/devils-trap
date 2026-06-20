@@ -241,7 +241,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       _v.y = 0; _v.normalize();
       const front = Math.max(0, _v.dot(_camDir));               // 1 = dead ahead
       // bosses strongly preferred (they're the win condition + sit far away); proximity + facing still matter
-      const score = dist * (isBoss ? 0.3 : 1) * (1.3 - 0.4 * front);
+      const score = dist * (isBoss ? 0.2 : 1) * (1.3 - 0.4 * front);
       if (score < bestScore) { bestScore = score; best = obj; }
     };
     for (const b of bosses) consider(b, true);
@@ -253,24 +253,36 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     for (const d of drones) { const dist = objPos(d).distanceTo(playerPos); if (dist < bd) { bd = dist; best = d; } }
     return best;
   }
-  function updateLock(camera, playerPos) {
+  const _lockPrev = new THREE.Vector3(), _lockVel = new THREE.Vector3();
+  let lockTracked = null;
+  function updateLock(camera, playerPos, dt) {
     ensureLockRing(); if (!lockRing.parent) g.add(lockRing);
     // drop a dead lock; keep a live one (hysteresis) so the reticle doesn't jitter between enemies
     if (lockObj && !(bosses.includes(lockObj) || drones.includes(lockObj))) lockObj = null;
     // emergency override — a drone right in your face takes priority over chipping a far boss
-    const threat = nearestDroneWithin(playerPos, 11);
+    const threat = nearestDroneWithin(playerPos, 9);
     if (threat) lockObj = threat;
     else if (!lockObj) lockObj = acquireTarget(camera, playerPos);
     if (lockObj) {
       const isBoss = !!lockObj.grp, p = objPos(lockObj);
+      // estimate target velocity (for projectile leading) from frame-to-frame motion
+      if (lockObj === lockTracked && dt > 0) _lockVel.copy(p).sub(_lockPrev).multiplyScalar(1 / dt);
+      else _lockVel.set(0, 0, 0);
+      lockTracked = lockObj; _lockPrev.copy(p);
       lockRing.visible = true; lockRing.position.copy(p);
       const base = isBoss ? 7.5 : 2.6, pulse = base * (1 + 0.09 * Math.sin(performance.now() * 0.007));
       lockRing.scale.setScalar(pulse); lockRing.quaternion.copy(camera.quaternion);
       lockRing.material.color.setHex(isBoss ? 0xff6a6a : 0xffe04a);
-    } else lockRing.visible = false;
+    } else { lockRing.visible = false; lockTracked = null; }
   }
-  // aim point the engine fires at / steers toward (lead the centre of mass), or null
   function lockedPos() { if (!lockObj) return null; return objPos(lockObj).clone(); }
+  // lead the target: where to aim so a bubble at `speed` from `eye` intersects the moving enemy
+  function lockedAim(eye, speed) {
+    if (!lockObj) return null;
+    const p = objPos(lockObj).clone();
+    const t = Math.min(1.2, p.distanceTo(eye) / Math.max(1, speed));   // travel time, capped
+    return p.addScaledVector(_lockVel, t);
+  }
   function hasLock() { return !!lockObj; }
 
   const tmp = new THREE.Vector3();
@@ -476,7 +488,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     }
 
     // maintain the auto-aim lock + reticle (uses the freshly-moved enemy positions)
-    updateLock(camera, playerPos);
+    updateLock(camera, playerPos, dt);
 
     const bossesLeft = bosses.length;
     const changed = bossesLeft !== prevBosses; prevBosses = bossesLeft;
@@ -493,5 +505,5 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   }
 
   function damageAll(n) { for (const b of bosses) b.hp -= n; }   // test hook for the win pipeline
-  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, hasLock };
+  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, lockedAim, hasLock };
 }

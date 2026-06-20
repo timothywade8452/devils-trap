@@ -12,6 +12,9 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { S, mountSettings, openSettings, isSettingsOpen } from "./settings.js";
 import { createArena } from "./arena.js";
+import { ensureName, getProfile, detectCountry, addPoints, addDeath, addBossKill, bumpLevel, addPlay } from "./profile.js";
+import { submit as lbSubmit, openLeaderboard } from "./leaderboard.js";
+import { levelPoints, SCORE } from "./lbconfig.js";
 
 // ───────────────────────── tunables ─────────────────────────
 const EYE = 2.3, RADIUS = 1.0, SPEED = 11, ACCEL = 60, JUMP = 9.2, GRAV = 26, DEATH_Y = -14;
@@ -140,6 +143,7 @@ let levelIdx = 0, deaths = 0, totalDeaths = 0, sprung = new Set();
 let state = "menu";                 // menu | play | dead | win | victory
 let mode = "maze";                  // maze | arena
 let arena = null;                   // arena controller (created on first arena run)
+let prevBossesLeft = 0;             // for awarding leaderboard points per boss killed
 const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0, hp: 100 };
 let lavaY = -50, lavaPlane = null, riseTimer = 0;
 let bobPhase = 0, stepDist = 0;     // view-bob + footstep cadence
@@ -239,6 +243,7 @@ function respawn() {
 function die(reason) {
   if (state !== "play") return;
   state = "dead"; deaths++; totalDeaths++;
+  addDeath(); lbSubmit();                 // leaderboard: count the death
   flash("#c01010"); AUDIO.sting("die");
   const pool = TAUNTS[reason] || TAUNTS.void;
   const label = mode === "arena" ? "FIGHT AGAIN" : "RETRY";
@@ -250,7 +255,10 @@ function die(reason) {
 function winLevel() {
   if (state !== "play") return;
   flash("#10c040"); AUDIO.sting("win");
+  // leaderboard: award the cleared floor + record furthest floor reached
+  addPoints(levelPoints(levelIdx)); bumpLevel(levelIdx + 1);
   if (levelIdx + 1 >= LEVELS.length) {
+    addPoints(SCORE.fullVictory);
     state = "victory";
     showMsg("YOU ESCAPED", "All " + LEVELS.length + " floors. The Devil is impressed.",
       "Total deaths: " + totalDeaths + "  ·  Space to replay", { label: "PLAY AGAIN", clear: true });
@@ -260,6 +268,7 @@ function winLevel() {
     showMsg("LEVEL " + (levelIdx + 1) + " CLEAR", next.taunt,
       "Next: " + next.name + "  ·  Space to continue", { label: "NEXT FLOOR", clear: true });
   }
+  lbSubmit();
 }
 
 function advance() {
@@ -615,9 +624,13 @@ function updateZoomHUD() { const z = document.getElementById("hud-zoom"); if (z)
 function startGame() {
   mode = "maze"; document.getElementById("combat").hidden = true;
   state = "play"; document.getElementById("intro").style.display = "none";
+  addPlay(); lbSubmit(getProfile(), true);    // register the player up front — no one missed
   AUDIO.start(); buildLevel(0); applyMobileLayout();
   if (!isTouch) canvas.requestPointerLock();
 }
+// name-gated entry points used by the menu buttons (test hooks Trap.start/startArena stay ungated)
+function startGameGuarded() { ensureName().then(() => startGame()); }
+function startArenaGuarded() { ensureName().then(() => startArena()); }
 
 // ───────────────────────── arena combat mode ─────────────────────────
 let lastShot = 0;
@@ -631,7 +644,7 @@ function fire() {
   // aim assist: fire straight at the locked enemy — full lock on touch (no 3rd thumb to aim),
   // gentle ~42° magnetism on desktop so near-misses still connect.
   if (S.autoAim) {
-    const lp = arena.lockedPos();
+    const lp = arena.lockedAim(eye, 115);   // lead the moving target
     if (lp) { const toLock = lp.sub(eye).normalize(); if (isTouch || dir.dot(toLock) > 0.74) dir = toLock; }
   }
   const origin = eye.clone().addScaledVector(dir, 1.4);
@@ -670,6 +683,7 @@ function buildArena() {
   }
   if (!arena) arena = createArena({ THREE, scene: world, MAT, glowSprite, audio: AUDIO, worldX, worldZ, bounds: { minX: TS, maxX: worldX(W - 2), minZ: TS, maxZ: worldZ(H - 2) } });
   arena.spawn(worldX(cx), worldZ(cz));
+  prevBossesLeft = arena.bossCount();
   player.pos.set(worldX(cx), 0, worldZ(cz)); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = 100;
   document.getElementById("combat").hidden = false;
   HUD.level.textContent = "ARENA"; HUD.name.textContent = "Slay the bosses"; HUD.deaths.textContent = "";
@@ -677,8 +691,8 @@ function buildArena() {
   applyMobileLayout();
   state = "play"; hideMsg();
 }
-function startArena() { document.getElementById("intro").style.display = "none"; AUDIO.start(); buildArena(); if (!isTouch) canvas.requestPointerLock(); }
-function winArena() { if (state !== "play") return; state = "victory"; flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Space to fight again", { label: "FIGHT AGAIN", clear: true }); }
+function startArena() { document.getElementById("intro").style.display = "none"; addPlay(); lbSubmit(getProfile(), true); AUDIO.start(); buildArena(); if (!isTouch) canvas.requestPointerLock(); }
+function winArena() { if (state !== "play") return; state = "victory"; addPoints(SCORE.arenaWin); lbSubmit(); flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Space to fight again", { label: "FIGHT AGAIN", clear: true }); }
 function updateCombatHUD(bossesLeft) {
   const hp = Math.max(0, player.hp);
   document.getElementById("hp-fill").style.width = hp + "%";
@@ -757,6 +771,9 @@ function frame() {
       if (shootHeld && state === "play") fire();
       const res = arena.update(dt, player.pos, camera, state === "play");
       if (state === "play") {
+        // leaderboard: award each boss destroyed (bossesLeft dropped this frame)
+        if (res.changed && res.bossesLeft < prevBossesLeft) { const killed = prevBossesLeft - res.bossesLeft; addBossKill(killed); addPoints(killed * SCORE.bossKill); lbSubmit(); }
+        prevBossesLeft = res.bossesLeft;
         if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); updateCombatHUD(res.bossesLeft); if (player.hp <= 0) die("shot"); }
         else if (res.changed) updateCombatHUD(res.bossesLeft);
         if (res.win) winArena();
@@ -772,6 +789,12 @@ mountSettings({ onChange: applySettings, onEditLayout: (on) => { editLayout = on
 applySettings();
 frame();
 
+// capture the player's name up front (modal if needed), then detect country + show name in the HUD
+ensureName().then(() => {
+  detectCountry().then(() => lbSubmit(getProfile(), true));
+  const p = getProfile(); const el = document.getElementById("hud-name-tag"); if (el && p) el.textContent = p.name;
+});
+
 // ───────────────────────── test / verify hooks ─────────────────────────
 // Exposed so the headless harness can drive real physics without a human.
 window.Trap = {
@@ -780,8 +803,11 @@ window.Trap = {
   get player() { return player; }, LEVELS, TS,
   start: startGame,
   startArena,
+  startGuarded: startGameGuarded,
+  startArenaGuarded,
   backToMenu,
   openSettings,
+  openLeaderboard,
   toggleMute,
   goto(i) { mode = "maze"; document.getElementById("combat").hidden = true; document.getElementById("intro").style.display = "none"; buildLevel(i); },
   // step the simulation by hand (dt seconds), used by the bot
@@ -803,12 +829,12 @@ window.Trap = {
     return player.hp;
   },
   // deterministic mobile auto-aim loop (face the lock + fire + step) for the headless test
-  arenaAutoStep(dt) {
+  arenaAutoStep(dt, godmode) {
     if (mode !== "arena" || !arena || state !== "play") return this.arenaInfo();
     lastShot = clock.elapsedTime - 1;   // bypass real-time cooldown (clock doesn't advance in a sync test loop)
     steerToLock(dt); shootHeld = true; fire();
     const res = arena.update(dt, player.pos, camera, true);
-    if (res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
+    if (!godmode && res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
     if (res.win) winArena();
     return this.arenaInfo();
   },

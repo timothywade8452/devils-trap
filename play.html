@@ -12,7 +12,7 @@
   <!-- HUD -->
   <div id="hud">
     <div id="hud-left"><span id="hud-level">LV 1/30</span><span id="hud-name">The Threshold</span></div>
-    <div id="hud-right"><span id="hud-zoom"></span><span id="hud-deaths">☠ 0</span><button id="mutebtn" title="Mute / unmute music (M)">🔊</button><button id="gearbtn" title="Settings (P)">⚙</button></div>
+    <div id="hud-right"><span id="hud-zoom"></span><span id="hud-deaths">☠ 0</span><button id="lbbtn" title="Leaderboard">🏆</button><button id="mutebtn" title="Mute / unmute music (M)">🔊</button><button id="gearbtn" title="Settings (P)">⚙</button></div>
   </div>
   <!-- arena combat HUD (hidden in maze mode) -->
   <div id="combat" hidden>
@@ -34,6 +34,7 @@
       the exit — find the safe path to it. <b>30 floors</b> across three descents.</p>
       <button id="play-btn">CLICK TO ENTER</button>
       <button id="arena-btn" class="ghost">⚔ ARENA MODE</button>
+      <button id="lb-btn" class="ghost">🏆 LEADERBOARD</button>
       <p class="ctrl" id="ctrl-desktop"><b>WASD / arrows</b> move · <b>shift</b> sprint · <b>mouse</b> look · <b>space</b> jump · <b>scroll / +−</b> zoom · <b>R</b> restart · <b>M</b> music · <b>⚙</b> settings</p>
       <p class="ctrl" id="ctrl-touch"><b>Joystick</b> move · <b>drag</b> to look · <b>JUMP / RUN</b> · in Arena just <b>hold FIRE</b> — it auto-aims the nearest enemy · <b>⚙</b> settings &amp; layout</p>
     </div>
@@ -71,11 +72,14 @@
   <script type="module" src="engine.js"></script>
   <script>
     const whenReady = (fn) => window.Trap ? fn() : addEventListener("trap-ready", fn, { once: true });
-    document.getElementById("play-btn").addEventListener("click", () => whenReady(() => window.Trap.start()));
-    document.getElementById("arena-btn").addEventListener("click", () => whenReady(() => window.Trap.startArena()));
-    // mute / gear — stop propagation so the click doesn't also grab pointer-lock
+    // name-gated entries so a name is captured before the game starts
+    document.getElementById("play-btn").addEventListener("click", () => whenReady(() => window.Trap.startGuarded()));
+    document.getElementById("arena-btn").addEventListener("click", () => whenReady(() => window.Trap.startArenaGuarded()));
+    document.getElementById("lb-btn").addEventListener("click", () => whenReady(() => window.Trap.openLeaderboard()));
+    // mute / gear / leaderboard — stop propagation so the click doesn't also grab pointer-lock
     document.getElementById("mutebtn").addEventListener("click", (e) => { e.stopPropagation(); window.Trap && window.Trap.toggleMute(); });
     document.getElementById("gearbtn").addEventListener("click", (e) => { e.stopPropagation(); window.Trap && window.Trap.openSettings(); });
+    document.getElementById("lbbtn").addEventListener("click", (e) => { e.stopPropagation(); window.Trap && window.Trap.openLeaderboard(); });
   </script>
 </body>
 </html>
