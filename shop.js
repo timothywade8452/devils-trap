@@ -12,7 +12,8 @@ import { SHOP_CONFIG } from "./shop-config.js";
 const KEY = "devilstrap_shop_v1";
 
 // ─────────────── balance (one place for every number) ───────────────
-const EARN = { floorFirst: 30, floorReplay: 5, noDeath: 15, bossKill: 20, arenaWin: 150, victory: 400 };
+const EARN = { floorFirst: 30, floorReplay: 5, noDeath: 15, bossKill: 20, arenaWin: 150, victory: 400,
+               arenaFloor: 14, arenaWorldStep: 5, arenaFirst: 16, campaignWin: 600 };
 const DIFF_MULT = { casual: 0.8, normal: 1, brutal: 1.5 };   // skill-scaled: grinding easy can't out-farm
 
 // ─────────────── catalogs ───────────────
@@ -85,6 +86,15 @@ export function award(kind, o = {}) {
     if (o.finished) e += Math.round(EARN.victory * dm);
   } else if (kind === "boss") { e = Math.round(EARN.bossKill * (o.n || 1) * dm); }
   else if (kind === "arenaWin") { e = Math.round(EARN.arenaWin * dm); }
+  else if (kind === "arenaFloor") {
+    // per arena-campaign level cleared: base + world bonus, first-clear + no-death bonuses, skill-scaled
+    const tag = "a" + o.idx, first = D.cleared.indexOf(tag) < 0;
+    e = EARN.arenaFloor + EARN.arenaWorldStep * (o.world || 0);
+    if (first) { e += EARN.arenaFirst; D.cleared.push(tag); }
+    if (o.deaths === 0) e += EARN.noDeath;
+    e = Math.round(e * dm);
+    if (o.finished) e += Math.round(EARN.campaignWin * dm);
+  }
   if (soulMagnet()) e *= 2;
   D.souls += e; save();
   return e;

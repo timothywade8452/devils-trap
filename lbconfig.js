@@ -19,8 +19,11 @@ export const SCORE = {
   levelBase: 50,        // points for clearing a maze floor
   levelStep: 10,        // + this × floor index (later floors worth more)
   bossKill: 250,        // per boss destroyed in the arena
-  arenaWin: 1000,       // clearing the arena (all bosses)
-  fullVictory: 2000,    // clearing all 30 floors
+  arenaLevel: 120,      // per arena-campaign level cleared
+  arenaLevelStep: 18,   // + this × level index (deeper levels worth more)
+  arenaWin: 1500,       // clearing the whole 50-level arena campaign
+  arenaEndlessWave: 40, // per wave survived in endless mode
+  fullVictory: 2000,    // clearing all 30 maze floors
 };
 export function levelPoints(i) { return SCORE.levelBase + SCORE.levelStep * i; }
 export function isGlobal() {

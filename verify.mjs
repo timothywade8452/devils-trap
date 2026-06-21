@@ -137,51 +137,52 @@ if (booted) {
   });
   for (const n of naiveResults) ok(n.died, `L${n.i + 1} NAIVE bot dies (state=${n.state})`);
 
-  // ── ARENA combat smoke test ──
+  // ── ARENA combat smoke test (driven on the Overseer boss level) ──
   console.log("\n=== PART C · arena combat (live) ===");
-  const arenaBoot = await page.evaluate(() => {
-    window.Trap.startArena();
-    const info = window.Trap.arenaInfo();
-    return { mode: window.Trap.mode, hp: window.Trap.hp, bosses: info && info.bosses };
-  });
+  const BOSS_LV = 9;  // level 10 — THE OVERSEER (a boss level)
+  const arenaBoot = await page.evaluate((i) => {
+    window.Trap.arenaGoto(i);
+    let bosses = 0; for (let k = 0; k < 6; k++) { window.Trap.arenaStep(0.05); bosses = Math.max(bosses, window.Trap.arenaInfo().bosses); }
+    return { mode: window.Trap.mode, hp: window.Trap.hp, bosses, name: window.Trap.arenaLevels[i].name };
+  }, BOSS_LV);
   ok(arenaBoot.mode === "arena", "arena mode entered");
-  ok(arenaBoot.bosses === 3, `3 bosses spawned (${arenaBoot.bosses})`);
+  ok(arenaBoot.bosses >= 1, `boss spawned on a boss level (${arenaBoot.bosses} · ${arenaBoot.name})`);
   ok(arenaBoot.hp === 100, "player starts at 100 HP");
 
   // firing spawns player bubbles (added synchronously by the real shoot path)
-  const fired = await page.evaluate(() => { window.Trap.fire(); return window.Trap.arenaInfo().playerProjectiles; });
+  const fired = await page.evaluate((i) => { window.Trap.arenaGoto(i); window.Trap.fire(); return window.Trap.arenaInfo().playerProjectiles; }, BOSS_LV);
   ok(fired >= 1, `firing spawns a bubble (${fired})`);
 
-  // drive the arena deterministically — bosses fire, projectiles fly, player takes damage
-  const afterRun = await page.evaluate(() => {
-    let hp = 100, maxEnemy = 0;
-    for (let i = 0; i < 200 && hp >= 100; i++) { hp = window.Trap.arenaStep(0.033); maxEnemy = Math.max(maxEnemy, window.Trap.arenaInfo().enemyProjectiles); }
+  // drive deterministically — enemies fire, projectiles fly, player takes damage
+  const afterRun = await page.evaluate((i) => {
+    window.Trap.arenaGoto(i);
+    let hp = window.Trap.hp, maxEnemy = 0;
+    for (let k = 0; k < 260 && hp >= 1; k++) { hp = window.Trap.arenaStep(0.033); maxEnemy = Math.max(maxEnemy, window.Trap.arenaInfo().enemyProjectiles); }
     return { hp, maxEnemy };
-  });
-  ok(afterRun.maxEnemy > 0, `bosses/drones fire projectiles (${afterRun.maxEnemy} in flight)`);
+  }, BOSS_LV);
+  ok(afterRun.maxEnemy > 0, `bosses/enemies fire projectiles (${afterRun.maxEnemy} in flight)`);
   ok(afterRun.hp < 100, `enemy fire damages the player (HP ${afterRun.hp})`);
 
-  // AIM ASSIST (mobile): without manual aiming, holding fire auto-locks + damages enemies
-  const assist = await page.evaluate(() => {
-    window.Trap.startArena();
-    for (let i = 0; i < 5; i++) window.Trap.arenaStep(0.033);   // let a lock acquire
-    const locked = window.Trap.arenaInfo().lock;
-    const hp0 = window.Trap.arenaInfo().bossHp;
+  // AIM ASSIST (mobile): without manual aiming, holding fire auto-locks + damages the boss
+  const assist = await page.evaluate((i) => {
+    window.Trap.arenaGoto(i);
+    for (let k = 0; k < 6; k++) window.Trap.arenaStep(0.033);   // let a lock acquire
+    const locked = window.Trap.arenaInfo().lock, hp0 = window.Trap.arenaInfo().bossHp;
     let dropped = 0;
-    for (let i = 0; i < 150 && window.Trap.state === "play"; i++) { const inf = window.Trap.arenaAutoStep(0.033, true); dropped = hp0 - inf.bossHp; }
+    for (let k = 0; k < 240 && window.Trap.state === "play"; k++) { const inf = window.Trap.arenaAutoStep(0.033, true); dropped = hp0 - inf.bossHp; }
     return { locked, hp0, dropped };
-  });
+  }, BOSS_LV);
   ok(assist.locked, "auto-aim acquires a target lock");
-  ok(assist.dropped > 80, `auto-aim alone damages enemies without manual aiming (-${Math.round(assist.dropped)} boss HP)`);
+  ok(assist.dropped > 80, `auto-aim alone damages the boss without manual aiming (-${Math.round(assist.dropped)} boss HP)`);
 
-  // fresh arena, kill all bosses through the real death/win pipeline
-  const won = await page.evaluate(() => {
-    window.Trap.startArena();        // reset: full HP, 3 bosses, state=play
-    window.Trap.arenaNuke(); window.Trap.arenaStep(0.033);
+  // win pipeline: nuke the boss level → campaign LEVEL CLEAR (state win/victory)
+  const won = await page.evaluate((i) => {
+    window.Trap.arenaGoto(i);
+    for (let k = 0; k < 12 && window.Trap.state === "play"; k++) { window.Trap.arenaNuke(); window.Trap.arenaStep(0.05); }
     return { state: window.Trap.state, bosses: window.Trap.arenaInfo().bosses };
-  });
+  }, BOSS_LV);
   ok(won.bosses === 0, "all bosses cleared");
-  ok(won.state === "victory", `arena win triggers (state=${won.state})`);
+  ok(won.state === "win" || won.state === "victory", `boss-level clear triggers (state=${won.state})`);
   ok(errors.length === 0, "no console errors in arena" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
 
   // ── PART D · new gameplay mechanics ──
@@ -217,7 +218,7 @@ if (booted) {
   ok(best["0"] && typeof best["0"].time === "number", "per-floor best record saved on clear");
   // dodge dash: arena-only, sets i-frames + cooldown
   const dash = await page.evaluate(() => {
-    window.Trap.startArena();
+    window.Trap.arenaGoto(0);
     const ok1 = window.Trap.dash();
     const inv = window.Trap.invuln, cd = window.Trap.dashCD;
     window.Trap.goto(0);                  // back to maze
@@ -227,7 +228,7 @@ if (booted) {
   ok(dash.ok1 === true && dash.inv > 0 && dash.cd > 0, "dash works in arena (i-frames + cooldown)");
   ok(dash.ok2 === false, "dash is disabled in the maze");
   // health pickup drops from drones + heals on contact
-  const heal = await page.evaluate(() => { window.Trap.startArena(); return window.Trap.arenaHealTest(); });
+  const heal = await page.evaluate(() => { window.Trap.arenaGoto(0); return window.Trap.arenaHealTest(); });
   ok(heal && heal.collected === 20 && heal.hp === 70, `health pickup heals on contact (+${heal && heal.collected} → ${heal && heal.hp})`);
   ok(errors.length === 0, "no console errors in gameplay tests" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
 
@@ -254,6 +255,39 @@ if (booted) {
   const pack = await page.evaluate(async () => { const Shop = await import("./shop.js"); return Shop.buyPack("pack_s"); });
   ok(pack && pack.ok === false && pack.reason === "unconfigured", "coin packs are 'coming soon' until a payment link is set");
   ok(errors.length === 0, "no console errors in economy" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
+
+  // ── PART F · arena CAMPAIGN (all 50 levels spawn + are winnable; endless boots) ──
+  console.log("\n=== PART F · arena campaign (50 levels + endless) ===");
+  const camp = await page.evaluate(() => {
+    const out = [], N = window.Trap.arenaLevels.length;
+    for (let i = 0; i < N; i++) {
+      window.Trap.arenaGoto(i);
+      let pop = 0; for (let k = 0; k < 4; k++) { window.Trap.arenaStep(0.05); const inf = window.Trap.arenaInfo(); pop = Math.max(pop, inf.enemies + inf.bosses); }
+      window.Trap.arenaGoto(i);                       // fresh start for the clear attempt
+      const r = window.Trap.arenaForceClear(800);
+      const Lv = window.Trap.arenaLevels[i];
+      out.push({ i, name: Lv.name, obj: Lv.objective, pop, state: r.state, steps: r.steps });
+    }
+    return out;
+  });
+  let campFail = 0;
+  for (const c of camp) {
+    const won = c.state === "win" || c.state === "victory";
+    if (!(won && c.pop > 0)) { campFail++; ok(false, `LV${c.i + 1} ${c.name} [${c.obj}] — spawns(${c.pop}) state=${c.state}`); }
+  }
+  ok(campFail === 0, `all ${camp.length} arena levels spawn + clear through the real win pipeline`);
+  // a few spot lines for the log
+  for (const i of [0, 9, 24, 44, 49]) { const c = camp[i]; ok(c.state === "win" || c.state === "victory", `  · LV${i + 1} ${c.name} [${c.obj}] cleared in ${c.steps} steps`); }
+
+  // endless "Grind" boots, escalates waves, never auto-wins
+  const endless = await page.evaluate(() => {
+    window.Trap.startEndless();
+    for (let k = 0; k < 420 && window.Trap.state === "play"; k++) window.Trap.arenaAutoStep(0.1, true);
+    return { mode: window.Trap.mode, on: window.Trap.arenaEndlessOn, wave: window.Trap.arenaWave, state: window.Trap.state };
+  });
+  ok(endless.on === true && endless.mode === "arena", "endless mode boots");
+  ok(endless.wave > 0, `endless escalates waves (reached wave ${endless.wave})`);
+  ok(errors.length === 0, "no console errors across the campaign" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
 }
 
 await browser.close();

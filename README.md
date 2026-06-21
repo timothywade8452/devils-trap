@@ -11,7 +11,7 @@ spot, you go again — the traps never move, so the impossible maze becomes a ro
 remember. A shaft of light marks the real exit so you always know which way is out.
 
 **30 floors** across three colour-themed acts, each ending with the floor turning to rising lava —
-plus a separate **Arena** boss-fight mode.
+plus a full **50-level Arena campaign** (5 worlds, a boss every 10th) and an endless **Grind** mode.
 
 ## Controls
 
@@ -49,12 +49,32 @@ lessons from *SwagaCity*: cosmetic-first sinks, skill-scaled earning, convenienc
 - **Arena dodge dash** + **health pickups** dropped by drones — survive longer, play with more skill.
 - Plus full **game juice**: screen shake, distinct per-trap death sounds, level-clear bursts.
 
-## Arena mode ⚔
+## Arena campaign ⚔ — 50 levels
 
-A vast open hellfield. Three **bosses** hover and rotate far across the arena, constantly
-repositioning and firing projectile spreads while ground **drones** swarm in. Fire back with
-glowing **energy bubbles** that streak across the field and burst on impact. Circle the cover
-pillars, dodge, and drop all three bosses before your health hits zero.
+A full first-person boss-rush, built from deep research into what makes arena shooters
+(ULTRAKILL, Devil Daggers, Risk of Rain 2) and rage hits blow up. Fire glowing **energy bubbles**
+at hovering, multi-phase bosses and a swarm of distinct enemies; dash to dodge; circle the cover.
+
+- **5 worlds × 10 levels = 50**, each visually distinct (The Proving Floor → Ember Reach → The
+  Drowned Vault → Stormspire → The Liar's Throne), with a **boss every 10th**, a miniboss mid-world,
+  a breather right after each boss, and a gauntlet spike late in each chapter.
+- **10 enemy archetypes**, each demanding a different response — swarmer drone, rusher hound, sniper
+  cyclops, tank brute, swarmling imp, shielded aegis, bomber mortar, summoner hive, turret sentry,
+  orbiting wraith — composed into waves with a stress-paced scheduler.
+- **5 bosses** (Overseer / Forgemaster / Drowned Choir / Tempest Crown / **The Devil**) that telegraph,
+  enrage at 50/25% HP, and cycle composable attack patterns: aimed fans, radial rings, spirals, beam
+  lances, projectile rain, and add-summons.
+- **Rotating objectives** so no two levels feel the same — slay, survive, hold, blitz/horde, hunt the
+  marked, boss duel, gauntlet (no cover), miniboss trio, and **sudden death** (one hit = death).
+- **Arena modifiers** (affixes) multiply the threat: ARMORED, SWIFT, FRENZY, VENOM, VOLLEY, SPLITTING —
+  and environmental hazards 🔥 LAVA, 🌑 DARK, ⭕ SHRINK (the arena closes in), 🌙 LOW-G, 💀 ONE-HIT.
+- The signature **"the floor is a liar"** rage-bait DNA escalates across the worlds, and a **troll
+  narrator** taunts you (per world) on every death.
+- A **level-select** grid tracks your progress (each level unlocks the next), and **☠ THE GRIND** is an
+  endless Cyber-Grind: survive escalating waves with a boss every fifth, scored by kills.
+
+Auto-aim assist makes it fully **one-thumb playable** on mobile: hold FIRE and it locks + leads the
+nearest threat while you drive with the stick.
 
 ## Settings
 
@@ -95,18 +115,22 @@ Pointer-lock FPS controller on desktop, full custom touch UI on mobile.
 
 - `play.html` — the game · `index.html` — landing page
 - `engine.js` — Three.js renderer + FPS physics + maze/arena runtime + audio
-- `arena.js` — the boss-fight combat module (enemies, bosses, projectiles, auto-aim lock)
+- `arena.js` — config-driven arena combat engine (10 enemy archetypes, 5 bosses + composable attack
+  patterns, wave scheduler, objectives, modifiers, auto-aim lock) · `arena-levels.js` — the 50-level campaign + endless data
 - `settings.js` — settings store + in-game settings panel
 - `profile.js` — player name capture + IP country + run stats · `leaderboard.js` — leaderboard store + UI · `lbconfig.js` — backend + scoring config
 - `shop.js` — Souls economy + Soul Shop (skins / upgrades / packs) · `shop-config.js` — coin-pack payment-link config
 - `sim.js` — shared tile rules (what kills you), used by the engine *and* the verifier
 - `levels.js` — auto-generated level data (30 levels) · `gen.cjs` — the level generator
-- `verify.mjs` — headless harness: proves every level is **beatable** (memory bot clears it),
-  **rage-bait** (naive bot dies), the **arena** boots/fights/wins, and the game **boots clean**
+- `verify.mjs` — headless harness: proves every maze floor is **beatable** (memory bot) + **rage-bait**
+  (naive bot dies), all **50 arena levels** spawn and are **winnable** through the real win pipeline,
+  endless escalates, the economy pays out, and the game **boots clean** (0 console errors)
+- `functest.mjs` — live functional test of the level-select DOM + per-frame hazards (lava / shrink / one-hit)
 
 ```bash
 node gen.cjs      # regenerate levels.js
-node verify.mjs   # full verification (pure checks + live browser engine + arena)
+node verify.mjs   # full verification (pure checks + live browser engine + 50-level arena campaign)
+node functest.mjs # live functional test of the level-select + hazard paths
 ```
 
 Part of the **Devil's** series — [Devil's Lie](https://trpper11.github.io/devils-lie/) ·

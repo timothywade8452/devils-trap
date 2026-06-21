@@ -16,6 +16,7 @@
   </div>
   <!-- arena combat HUD (hidden in maze mode) -->
   <div id="combat" hidden>
+    <div id="arena-banner"><span id="arena-tag"></span><span id="arena-mods"></span></div>
     <div id="hp-wrap"><div id="hp-fill"></div><span id="hp-text">100</span></div>
     <div id="combat-right"><span id="dash-ind" class="ready">⟫ DASH</span><span id="ammo">●●●●●●</span><span id="boss-count">BOSSES 3</span></div>
   </div>
@@ -35,7 +36,7 @@
       <b>sonar ping</b> (F) to flash nearby traps. <b>30 floors</b> across three descents — pick Casual,
       Normal or Brutal in ⚙ Settings.</p>
       <button id="play-btn">CLICK TO ENTER</button>
-      <button id="arena-btn" class="ghost">⚔ ARENA MODE</button>
+      <button id="arena-btn" class="ghost">⚔ ARENA CAMPAIGN · 50 LEVELS</button>
       <button id="lb-btn" class="ghost">🏆 LEADERBOARD</button>
       <button id="shop-btn" class="ghost">🛒 SOUL SHOP</button>
       <p class="ctrl" id="ctrl-desktop"><b>WASD</b> move · <b>shift</b> sprint · <b>mouse</b> look · <b>space</b> jump · <b>F</b> sonar scout · <b>double-tap</b> to dash (arena) · <b>scroll</b> zoom · <b>R</b> restart · <b>⚙</b> settings</p>
@@ -79,7 +80,7 @@
     const whenReady = (fn) => window.Trap ? fn() : addEventListener("trap-ready", fn, { once: true });
     // name-gated entries so a name is captured before the game starts
     document.getElementById("play-btn").addEventListener("click", () => whenReady(() => window.Trap.startGuarded()));
-    document.getElementById("arena-btn").addEventListener("click", () => whenReady(() => window.Trap.startArenaGuarded()));
+    document.getElementById("arena-btn").addEventListener("click", () => whenReady(() => window.Trap.openArenaSelect()));
     document.getElementById("lb-btn").addEventListener("click", () => whenReady(() => window.Trap.openLeaderboard()));
     document.getElementById("shop-btn").addEventListener("click", () => whenReady(() => window.Trap.openShop()));
     // mute / gear / leaderboard / shop — stop propagation so the click doesn't also grab pointer-lock

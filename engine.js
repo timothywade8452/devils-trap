@@ -16,6 +16,7 @@ import { ensureName, getProfile, detectCountry, addPoints, addDeath, addBossKill
 import { submit as lbSubmit, openLeaderboard } from "./leaderboard.js";
 import { levelPoints, SCORE } from "./lbconfig.js";
 import * as Shop from "./shop.js";
+import { ARENA_LEVELS, ARENA_ENDLESS, WORLDS } from "./arena-levels.js";
 
 // ───────────────────────── tunables ─────────────────────────
 const EYE = 2.3, RADIUS = 1.0, SPEED = 11, ACCEL = 60, JUMP = 9.2, GRAV = 26, DEATH_Y = -14;
@@ -95,9 +96,11 @@ function texLava() {
 }
 const TEX = {
   concrete: texConcrete(),
-  floorA: texFloor("#caccd2", "#33363d"), // grey checker  — Act I (cold slate)
-  floorB: texFloor("#d2b487", "#6e5230"), // amber stone    — Act II (rust)
-  floorC: texFloor("#b9a6dc", "#3a2c54"), // violet stone   — Act III (toxic)
+  floorA: texFloor("#caccd2", "#33363d"), // grey checker  — Act I / Arena W1 (cold slate)
+  floorB: texFloor("#d2b487", "#6e5230"), // amber stone    — Act II / Arena W2 (rust)
+  floorC: texFloor("#b9a6dc", "#3a2c54"), // violet stone   — Act III / Arena W4 (toxic)
+  floorD: texFloor("#9fe0d6", "#143038"), // teal stone     — Arena W3 (drowned vault)
+  floorE: texFloor("#e0a0a0", "#3a1018"), // crimson stone  — Arena W5 (liar's throne)
   lava: texLava(),
   door: (() => { const [e, x] = cv(128); x.fillStyle = "#2a1c14"; x.fillRect(0, 0, 128, 128); x.fillStyle = "#3c2a1d"; x.fillRect(14, 8, 100, 120); x.strokeStyle = "#1a0f08"; x.lineWidth = 4; x.strokeRect(20, 16, 88, 100); x.fillStyle = "#caa24a"; x.beginPath(); x.arc(98, 70, 5, 0, 7); x.fill(); return new THREE.CanvasTexture(e); })(),
 };
@@ -112,6 +115,8 @@ const MAT = {
   floorA: new THREE.MeshStandardMaterial({ map: TEX.floorA, bumpMap: TEX.floorA, bumpScale: 0.05, roughness: 0.85, metalness: 0.1, envMapIntensity: 0.6 }),
   floorB: new THREE.MeshStandardMaterial({ map: TEX.floorB, bumpMap: TEX.floorB, bumpScale: 0.05, roughness: 0.88, metalness: 0.08, envMapIntensity: 0.5 }),
   floorC: new THREE.MeshStandardMaterial({ map: TEX.floorC, bumpMap: TEX.floorC, bumpScale: 0.05, roughness: 0.82, metalness: 0.12, envMapIntensity: 0.7 }),
+  floorD: new THREE.MeshStandardMaterial({ map: TEX.floorD, bumpMap: TEX.floorD, bumpScale: 0.05, roughness: 0.78, metalness: 0.16, envMapIntensity: 0.8 }),
+  floorE: new THREE.MeshStandardMaterial({ map: TEX.floorE, bumpMap: TEX.floorE, bumpScale: 0.05, roughness: 0.8, metalness: 0.14, envMapIntensity: 0.75 }),
   lava: new THREE.MeshStandardMaterial({ map: TEX.lava, emissive: 0xff4400, emissiveIntensity: 1.6, roughness: 0.5 }),
   spike: new THREE.MeshStandardMaterial({ color: 0x16181d, roughness: 0.25, metalness: 0.8, envMapIntensity: 1.5 }),
   ceil: new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 1 }),
@@ -144,6 +149,15 @@ const THEMES = [
   { floor: MAT.floorC, fog: 0x09040e, sky: 0x9778b6, ground: 0x130a1a, amb: 0x483a5c, torch: 0xe2c2ff, wall: 0xa98fcc, accent: 0xc35cff },
 ];
 
+// arena-campaign world themes (5) — each world is a hard visual reset (palette + fog + lights)
+const ARENA_THEMES = [
+  { floor: MAT.floorA, fog: 0x07101a, sky: 0x88b0c8, ground: 0x0a1418, amb: 0x2a4a58, torch: 0xcfeaff, wall: 0x8fb0c4, accent: 0x5cffd0 }, // W1 Proving Floor (cyan)
+  { floor: MAT.floorB, fog: 0x140a04, sky: 0xc08040, ground: 0x180c04, amb: 0x5a3a1c, torch: 0xffc060, wall: 0xc09060, accent: 0xff9a3c }, // W2 Ember Reach (amber)
+  { floor: MAT.floorD, fog: 0x041014, sky: 0x40b0b0, ground: 0x06181c, amb: 0x1c4a4e, torch: 0x9fe0e0, wall: 0x5fa0a8, accent: 0x33e0d0 }, // W3 Drowned Vault (teal)
+  { floor: MAT.floorC, fog: 0x0a040e, sky: 0x9070c0, ground: 0x120820, amb: 0x40305c, torch: 0xc0a0ff, wall: 0x9070c0, accent: 0xb060ff }, // W4 Stormspire (violet)
+  { floor: MAT.floorE, fog: 0x14040a, sky: 0xc04050, ground: 0x1a0408, amb: 0x501018, torch: 0xff8080, wall: 0xa03040, accent: 0xff2a44 }, // W5 Liar's Throne (crimson)
+];
+
 // ───────────────────────── game state ─────────────────────────
 const world = new THREE.Group(); scene.add(world);
 const dynamic = [];                 // per-frame updaters for this level
@@ -151,8 +165,20 @@ let grid = [], gridW = 0, gridH = 0;
 let levelIdx = 0, deaths = 0, totalDeaths = 0, sprung = new Set();
 let state = "menu";                 // menu | play | dead | win | victory
 let mode = "maze";                  // maze | arena
-let arena = null;                   // arena controller (created on first arena run)
+let arena = null;                   // arena controller (rebuilt per arena level)
 let prevBossesLeft = 0;             // for awarding leaderboard points per boss killed
+// ── arena campaign state ──
+let arenaIdx = 0;                   // current arena-campaign level index (0-based)
+let arenaCfg = null;                // current level config
+let arenaEndless = false;           // endless "Grind" mode
+let arenaT = 0;                     // seconds elapsed in the current arena level
+let arenaLevelDeaths = 0;           // deaths on the current arena level (for the no-death Souls bonus)
+let arenaScore = 0, arenaWaveN = 0, endlessNextWave = 0, endlessGap = 7; // endless tracking
+let arenaCenter = { x: 0, z: 0 };
+let arenaHaz = { lava: [], shrinkOn: false, shrinkR0: 0, shrinkRmin: 0, dark: false, lowgrav: false, onehit: false };
+let arenaRing = null;               // shrinking-arena danger ring visual
+const ARENA_KEY = "devilstrap_arena_v1";
+let arenaProg = { unlocked: 0 }; try { arenaProg = Object.assign({ unlocked: 0 }, JSON.parse(localStorage.getItem(ARENA_KEY) || "{}")); } catch {}
 const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, grounded: true, coyote: 0, hp: 100, invuln: 0 };
 let lavaY = -50, lavaPlane = null, riseTimer = 0;
 let bobPhase = 0, stepDist = 0;     // view-bob + footstep cadence
@@ -196,6 +222,8 @@ function buildLevel(i) {
   hemi.color.setHex(theme.sky); hemi.groundColor.setHex(theme.ground);
   amb.color.setHex(theme.amb); torch.color.setHex(theme.torch);
   MAT.wall.color.setHex(theme.wall);
+  // reset any arena-hazard lighting (a dark arena dims these); restore default fog
+  hemi.intensity = 0.55; amb.intensity = 0.6; torch.intensity = 1.0; torch.distance = 70; scene.fog.density = 0.02;
   const floorGeo = new THREE.PlaneGeometry(TS, TS);
   const wallGeo = new THREE.BoxGeometry(TS, WALL_H, TS);
 
@@ -250,7 +278,7 @@ function glowSprite() { const [e, x] = cv(128); const g = x.createRadialGradient
 
 // ───────────────────────── spawn / die / win ─────────────────────────
 function respawn() {
-  if (mode === "arena") { buildArena(); return; }
+  if (mode === "arena") { if (arenaEndless) buildEndless(); else buildArena(arenaIdx); return; }
   const L = LEVELS[levelIdx];
   player.pos.set(worldX(L.start.c), 0, worldZ(L.start.r));
   player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0;
@@ -269,14 +297,23 @@ function clearPingMarks() { for (const m of pingMarks) world.remove(m.mesh); pin
 
 function die(reason) {
   if (state !== "play") return;
-  state = "dead"; deaths++; totalDeaths++;
+  state = "dead"; totalDeaths++;
+  if (mode === "arena") arenaLevelDeaths++; else deaths++;
   addDeath(); lbSubmit();                 // leaderboard: count the death
   if (mode === "maze") { const [er, ec] = cellOf(player.pos.x, player.pos.z); echoMarks.add(er + "," + ec); }  // Death Echo upgrade
   flash("#c01010"); AUDIO.sting("die"); AUDIO.trap(reason); shake(0.4, 0.35);
-  const pool = TAUNTS[reason] || TAUNTS.void;
-  const label = mode === "arena" ? "FIGHT AGAIN" : "RETRY";
-  showMsg("YOU DIED", pool[Math.floor(Math.random() * pool.length)],
-    "death #" + deaths + "  ·  R / Space to retry", { label });
+  let sub, hint;
+  if (mode === "arena") {                 // troll narrator, per world / endless
+    const pool = ARENA_TAUNTS[arenaEndless ? 0 : (arenaCfg ? arenaCfg.world : 0) + 1] || TAUNTS.shot;
+    sub = pool[Math.floor(Math.random() * pool.length)];
+    hint = arenaEndless ? ("Reached WAVE " + arenaWaveN + "  ·  ☠ " + arenaScore + "  ·  Space to retry")
+                        : ("Level " + (arenaIdx + 1) + " · death #" + arenaLevelDeaths + "  ·  Space to retry");
+  } else {
+    const pool = TAUNTS[reason] || TAUNTS.void;
+    sub = pool[Math.floor(Math.random() * pool.length)];
+    hint = "death #" + deaths + "  ·  R / Space to retry";
+  }
+  showMsg("YOU DIED", sub, hint, { label: mode === "arena" ? "FIGHT AGAIN" : "RETRY" });
   updateHUD();
 }
 
@@ -308,7 +345,7 @@ function winLevel() {
 }
 
 function advance() {
-  if (mode === "arena") { buildArena(); return; }
+  if (mode === "arena") { if (msgPrimaryAction) msgPrimaryAction(); else if (arenaEndless) buildEndless(); else buildArena(arenaIdx); return; }
   if (state === "win") buildLevel(levelIdx + 1);
   else if (state === "victory") { totalDeaths = 0; buildLevel(0); }
 }
@@ -429,7 +466,7 @@ function setupTouch() {
     el.addEventListener("touchend", end); el.addEventListener("touchcancel", end);
   };
 
-  holdBtn(T.jump, () => { if (state === "play" && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; } });
+  holdBtn(T.jump, () => { if (state === "play" && (player.grounded || player.coyote > 0)) { player.vel.y = jumpV(); player.grounded = false; player.coyote = 0; } });
   holdBtn(T.sprint, () => { touchSprint = true; }, () => { touchSprint = false; });
   holdBtn(T.shoot, () => { shootHeld = true; fire(); }, () => { shootHeld = false; });
   holdBtn(T.ping, () => sonarPing());
@@ -535,7 +572,7 @@ function tick(dt) {
   player.vel.x += (wantX - player.vel.x) * Math.min(1, ACCEL * dt / SPEED);
   player.vel.z += (wantZ - player.vel.z) * Math.min(1, ACCEL * dt / SPEED);
   // jump with a little coyote-time grace so a late press still works at ledges
-  if (!frozen && keys.Space && (player.grounded || player.coyote > 0)) { player.vel.y = JUMP; player.grounded = false; player.coyote = 0; }
+  if (!frozen && keys.Space && (player.grounded || player.coyote > 0)) { player.vel.y = jumpV(); player.grounded = false; player.coyote = 0; }
 
   // integrate horizontal + collide
   player.pos.x += player.vel.x * dt; player.pos.z += player.vel.z * dt;
@@ -547,7 +584,7 @@ function tick(dt) {
   const pitSprung = sprung.has(`${r},${c}`);
   const hasFloor = FLOORLIKE.has(ch) && !(ch === "o" && pitSprung);
   if (hasFloor && player.pos.y <= 0.01 && player.vel.y <= 0) { player.pos.y = 0; player.vel.y = 0; player.grounded = true; player.coyote = 0.12; }
-  else { player.vel.y -= GRAV * dt; player.pos.y += player.vel.y * dt; player.grounded = false; player.coyote = Math.max(0, player.coyote - dt); }
+  else { player.vel.y -= (mode === "arena" && arenaHaz.lowgrav ? GRAV * 0.42 : GRAV) * dt; player.pos.y += player.vel.y * dt; player.grounded = false; player.coyote = Math.max(0, player.coyote - dt); }
 
   // rising lava (faster on Brutal, slower on Casual)
   if (lavaPlane) {
@@ -563,6 +600,12 @@ function tick(dt) {
     if (k.kind === "win") { winLevel(); return; }
     if (k.kind === "die") { springVisual(ch, r, c); die(k.reason); return; }
     if (k.kind === "fall") { sprung.add(`${r},${c}`); dropPit(r, c); /* gravity takes over */ }
+  }
+  // arena hazard floors (lava patches + shrinking danger ring) + level timer
+  if (mode === "arena" && state === "play") {
+    arenaT += dt;
+    for (const lz of arenaHaz.lava) { const dx = player.pos.x - lz.x, dz = player.pos.z - lz.z; if (dx * dx + dz * dz < lz.r * lz.r) { arenaChip(28, dt, "lava"); break; } }
+    if (arenaHaz.shrinkOn) { const dx = player.pos.x - arenaCenter.x, dz = player.pos.z - arenaCenter.z; if (Math.hypot(dx, dz) > arenaSafeR()) arenaChip(36, dt, "lavarise"); }
   }
   if (player.pos.y < DEATH_Y) { die("void"); return; }
 }
@@ -625,7 +668,7 @@ function updateTimerHUD() { const el = document.getElementById("hud-timer"); if 
 function updateDashHUD() { const el = document.getElementById("dash-ind"); if (!el) return; const ready = dashCD <= 0; el.textContent = ready ? "⟫ DASH" : "⟫ " + Math.max(0, dashCD).toFixed(1); el.classList.toggle("ready", ready); }
 
 // ───────────────────────── shop / souls ─────────────────────────
-function overlayOpen() { return isSettingsOpen() || Shop.isShopOpen(); }
+function overlayOpen() { return isSettingsOpen() || Shop.isShopOpen() || isArenaSelectOpen(); }
 function applyShop() {
   activeSkin = Shop.skinColors();
   if (arena) arena.setBubbleColors(activeSkin.bubble);
@@ -841,17 +884,67 @@ function steerToLock(dt) {
   player.pitch += (clamp(wantPitch, -1.3, 1.3) - player.pitch) * k;
 }
 
-function buildArena() {
+// ── arena-campaign troll narrator (death taunts): [0]=endless, [1..5]=worlds 1..5 ──
+const ARENA_TAUNTS = [
+  ["The Grind ground you down.", "Another wave you'll never see.", "So close to one more wave."],
+  ["The Overseer is unimpressed.", "Test failed. Reset the test.", "You died on the PROVING floor. Adorable."],
+  ["Medium rare. Again.", "The Forgemaster barely looked up.", "You melted. Predictably."],
+  ["The deep keeps your name now.", "Drowned. The floor lied, didn't it?", "The dark ate you whole."],
+  ["The storm spat you out.", "The void thanks you for the donation.", "Knocked into nothing. Classic."],
+  ["The Devil expected better.", "The throne laughs. You believed the floor.", "Everything lied. You died anyway."],
+];
+const HAZ_LABEL = { lava: "🔥LAVA", dark: "🌑DARK", shrink: "⭕SHRINK", lowgrav: "🌙LOW-G", onehit: "💀ONE-HIT" };
+
+// jump impulse (floatier in low-gravity arena levels)
+function jumpV() { return (mode === "arena" && arenaHaz.lowgrav) ? JUMP * 1.35 : JUMP; }
+// current safe radius of a shrinking arena (closes from R0→Rmin over the level)
+function arenaSafeR() { return Math.max(arenaHaz.shrinkRmin, arenaHaz.shrinkR0 - (arenaHaz.shrinkR0 - arenaHaz.shrinkRmin) * Math.min(1, arenaT / arenaHaz.shrinkDur)); }
+let chipFlashT = 0;
+function arenaChip(dmg, dt, reason) {        // hazard floor damage (lava / outside-the-ring)
+  if (state !== "play" || player.invuln > 0) return;
+  player.hp = Math.max(0, player.hp - dmg * dt);
+  if (clock.elapsedTime - chipFlashT > 0.2) { flash("rgba(255,90,20,0.4)"); chipFlashT = clock.elapsedTime; }
+  if (player.hp <= 0) die(reason || "lava");
+}
+
+// cover-pillar placement per layout style (avoids the central spawn pocket)
+function coverCells(W, H, cx, cz, kind) {
+  const cells = [], far = (r, c) => Math.abs(r - cz) >= 4 || Math.abs(c - cx) >= 4, inb = (r, c) => r > 3 && c > 3 && r < H - 4 && c < W - 4;
+  if (kind === "grid") { for (let r = 5; r < H - 5; r += 6) for (let c = 5; c < W - 5; c += 6) if (far(r, c)) cells.push([r, c]); }
+  else if (kind === "ring") { const rad = ((W - 1) >> 1) - 5; for (let a = 0; a < 12; a++) { const r = cz + Math.round(Math.sin(a / 12 * Math.PI * 2) * rad), c = cx + Math.round(Math.cos(a / 12 * Math.PI * 2) * rad); if (inb(r, c)) cells.push([r, c]); } }
+  else if (kind === "corners") { const o = 6; for (const [r0, c0] of [[o, o], [o, W - 1 - o], [H - 1 - o, o], [H - 1 - o, W - 1 - o]]) { cells.push([r0, c0]); cells.push([r0 + (r0 < cz ? 2 : -2), c0]); cells.push([r0, c0 + (c0 < cx ? 2 : -2)]); } }
+  else if (kind === "scatter") { let s = (W * 73 + H * 131) >>> 0; const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32); for (let i = 0; i < 11; i++) { const r = 4 + Math.floor(rnd() * (H - 8)), c = 4 + Math.floor(rnd() * (W - 8)); if (inb(r, c) && far(r, c)) cells.push([r, c]); } }
+  return cells;   // "none" → []
+}
+// deterministic lava-patch cells, off the spawn pocket
+function lavaCells(W, H, cx, cz) {
+  const out = []; let s = (W * 13 + H * 29) >>> 0; const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  for (let i = 0; i < 7; i++) { const r = 5 + Math.floor(rnd() * (H - 10)), c = 5 + Math.floor(rnd() * (W - 10)); if (Math.abs(r - cz) < 4 && Math.abs(c - cx) < 4) continue; out.push([r, c]); }
+  return out;
+}
+
+// ───────────────────────── arena CAMPAIGN ─────────────────────────
+// Build the encounter described by an ARENA_LEVELS entry (geometry + theme + hazards), then hand the
+// combat config to the arena controller. Recreated per level so each can have its own size/bounds.
+function buildArenaFromCfg(cfg) {
   mode = "arena"; levelIdx = 0; deaths = 0; sprung = new Set(); riseTimer = 0; lavaPlane = null;
+  arenaT = 0; arenaRing = null;
   for (let k = world.children.length - 1; k >= 0; k--) world.remove(world.children[k]);
-  dynamic.length = 0;
-  const W = 41, H = 41, cx = (W - 1) >> 1, cz = (H - 1) >> 1;   // 41×4 = 164 units across — a big floor
-  const g = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? "#" : "."));
-  for (let r = 4; r < H - 4; r += 6) for (let c = 4; c < W - 4; c += 6) { if (Math.abs(r - cz) < 4 && Math.abs(c - cx) < 4) continue; g[r][c] = "P"; }
-  grid = g; gridH = H; gridW = W;
-  const theme = THEMES[2];   // hellish violet arena
+  dynamic.length = 0; pingMarks.length = 0; fx.length = 0;
+  const sizeT = (cfg.geom && cfg.geom.size) || 41, W = sizeT, H = sizeT, cx = (W - 1) >> 1, cz = (H - 1) >> 1;
+  arenaCenter = { x: worldX(cx), z: worldZ(cz) };
+  const haz = cfg.hazard || [], dark = haz.includes("dark");
+  const theme = ARENA_THEMES[cfg.world || 0] || ARENA_THEMES[0];
   scene.fog.color.setHex(theme.fog); hemi.color.setHex(theme.sky); hemi.groundColor.setHex(theme.ground);
   amb.color.setHex(theme.amb); torch.color.setHex(theme.torch); MAT.wall.color.setHex(theme.wall);
+  // hazard state (dark dims the scene; shrink/lava/lowgrav/onehit handled in tick + buildArenaFromCfg)
+  arenaHaz = { lava: [], shrinkOn: haz.includes("shrink"), shrinkR0: 0, shrinkRmin: 15, shrinkDur: cfg.target || 48, dark, lowgrav: haz.includes("lowgrav"), onehit: haz.includes("onehit") };
+  hemi.intensity = dark ? 0.10 : 0.55; amb.intensity = dark ? 0.12 : 0.6; torch.intensity = dark ? 0.8 : 1.0; torch.distance = dark ? 26 : 70;
+  scene.fog.density = dark ? 0.05 : 0.02;
+  // floor + border walls + cover pillars
+  const g = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? "#" : "."));
+  for (const [r, c] of coverCells(W, H, cx, cz, (cfg.geom && cfg.geom.cover) || "grid")) if (g[r] && g[r][c] === ".") g[r][c] = "P";
+  grid = g; gridH = H; gridW = W;
   const floorGeo = new THREE.PlaneGeometry(TS, TS), wallGeo = new THREE.BoxGeometry(TS, WALL_H, TS);
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
     const ch = g[r][c], x = worldX(c), z = worldZ(r);
@@ -859,28 +952,130 @@ function buildArena() {
     else if (ch === "#") { const w = new THREE.Mesh(wallGeo, MAT.wall); w.position.set(x, WALL_H / 2, z); w.castShadow = true; w.receiveShadow = true; world.add(w); }
     else if (ch === "P") { const p = new THREE.Mesh(new THREE.CylinderGeometry(TS * 0.34, TS * 0.4, WALL_H * 0.85, 16), MAT.pillar); p.position.set(x, WALL_H * 0.42, z); p.castShadow = true; world.add(p); }
   }
-  if (!arena) arena = createArena({ THREE, scene: world, MAT, glowSprite, audio: AUDIO, worldX, worldZ, bounds: { minX: TS, maxX: worldX(W - 2), minZ: TS, maxZ: worldZ(H - 2) } });
+  // lava patches (visible + tracked for chip damage)
+  if (haz.includes("lava")) for (const [r, c] of lavaCells(W, H, cx, cz)) {
+    const x = worldX(c), z = worldZ(r);
+    const f = new THREE.Mesh(floorGeo, MAT.lava); f.rotation.x = -Math.PI / 2; f.position.set(x, 0.06, z); world.add(f);
+    const pl = new THREE.PointLight(0xff5a18, 0.9, 14, 2); pl.position.set(x, 1.6, z); world.add(pl);
+    arenaHaz.lava.push({ x, z, r: TS * 0.62 });
+  }
+  // shrinking-arena danger ring
+  if (arenaHaz.shrinkOn) {
+    arenaHaz.shrinkR0 = (W / 2 - 2.5) * TS;
+    arenaRing = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.05, 64), new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    arenaRing.rotation.x = -Math.PI / 2; arenaRing.position.set(arenaCenter.x, 0.2, arenaCenter.z); arenaRing.scale.set(arenaHaz.shrinkR0, 1, arenaHaz.shrinkR0); world.add(arenaRing);
+  }
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W * TS + TS, H * TS + TS), MAT.ceil); ceil.rotation.x = Math.PI / 2; ceil.position.set((W - 1) * TS / 2, WALL_H * 1.7, (H - 1) * TS / 2); world.add(ceil);
+  // (re)create the combat controller with this level's bounds, then spawn the encounter
+  arena = createArena({ THREE, scene: world, MAT, glowSprite, audio: AUDIO, bounds: { minX: TS, maxX: worldX(W - 2), minZ: TS, maxZ: worldZ(H - 2) } });
   arena.setBubbleColors(activeSkin.bubble);
-  arena.spawn(worldX(cx), worldZ(cz));
+  arena.spawn(cfg);
   prevBossesLeft = arena.bossCount();
-  maxHp = Shop.arenaMaxHp();   // Iron Heart upgrade
-  player.pos.set(worldX(cx), 0, worldZ(cz)); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = maxHp;
-  pings = 0; pingMarks.length = 0; fx.length = 0; dashCD = 0; player.invuln = 0; shakeT = 0;
+  maxHp = arenaHaz.onehit ? 1 : Shop.arenaMaxHp();
+  player.pos.set(arenaCenter.x, 0, arenaCenter.z); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = maxHp;
+  pings = 0; dashCD = 0; player.invuln = 0; shakeT = 0;
   document.getElementById("combat").hidden = false;
-  HUD.level.textContent = "ARENA"; HUD.name.textContent = "Slay the bosses"; HUD.deaths.textContent = "";
+  HUD.level.textContent = arenaEndless ? "ENDLESS" : ("LV " + (arenaIdx + 1) + "/" + ARENA_LEVELS.length);
+  HUD.name.textContent = cfg.name; HUD.deaths.textContent = "";
   const tEl = document.getElementById("hud-timer"); if (tEl) tEl.textContent = "";
-  updateCombatHUD(arena.bossCount()); updatePingHUD(); updateDashHUD();
-  applyMobileLayout();
+  setArenaBanner(cfg); updateCombatHUD(cfg.objLabel || "SLAY"); updatePingHUD(); updateDashHUD(); applyMobileLayout();
   state = "play"; hideMsg();
 }
-function startArena() { document.getElementById("intro").style.display = "none"; addPlay(); lbSubmit(getProfile(), true); AUDIO.start(); buildArena(); if (!isTouch) canvas.requestPointerLock(); }
-function winArena() { if (state !== "play") return; state = "victory"; addPoints(SCORE.arenaWin); lbSubmit(); const e = Shop.award("arenaWin", { difficulty: S.difficulty }); coinToast(e); updateCoinHUD(); flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Space to fight again", { label: "FIGHT AGAIN", clear: true }); }
-function updateCombatHUD(bossesLeft) {
-  const hp = Math.max(0, player.hp);
-  document.getElementById("hp-fill").style.width = (hp / maxHp * 100) + "%";
-  document.getElementById("hp-text").textContent = Math.round(hp);
-  document.getElementById("boss-count").textContent = "BOSSES " + bossesLeft;
+function setArenaBanner(cfg) {
+  const tag = document.getElementById("arena-tag");
+  if (tag) tag.textContent = (arenaEndless ? "" : "LV " + (arenaIdx + 1) + " · ") + cfg.name;
+  const chips = [].concat(cfg.objLabel ? [cfg.objLabel] : [], (cfg.mods || []).map((m) => m.toUpperCase()), (cfg.hazard || []).map((h) => HAZ_LABEL[h] || h.toUpperCase()));
+  const me = document.getElementById("arena-mods"); if (me) me.innerHTML = chips.map((c) => `<span class="ach">${c}</span>`).join("");
 }
+function buildArena(idx = arenaIdx) {
+  arenaEndless = false; arenaIdx = Math.max(0, Math.min(ARENA_LEVELS.length - 1, idx));
+  arenaCfg = ARENA_LEVELS[arenaIdx]; buildArenaFromCfg(arenaCfg);
+}
+function buildEndless() {
+  arenaEndless = true; arenaWaveN = 0; arenaScore = 0; endlessGap = 7; arenaLevelDeaths = 0;
+  arenaCfg = JSON.parse(JSON.stringify(ARENA_ENDLESS)); buildArenaFromCfg(arenaCfg); endlessNextWave = endlessGap;
+}
+function startArena(idx) {
+  document.getElementById("intro").style.display = "none"; addPlay(); lbSubmit(getProfile(), true); AUDIO.start();
+  arenaLevelDeaths = 0; buildArena(idx == null ? Math.min(arenaProg.unlocked | 0, ARENA_LEVELS.length - 1) : idx);
+  if (!isTouch) canvas.requestPointerLock();
+}
+function startEndless() { document.getElementById("intro").style.display = "none"; addPlay(); lbSubmit(getProfile(), true); AUDIO.start(); buildEndless(); if (!isTouch) canvas.requestPointerLock(); }
+// escalate a live endless run: push a wave on a shrinking timer, add a boss every 5 waves, ramp trickle
+function endlessTick() {
+  if (arenaT < endlessNextWave) return;
+  arenaWaveN++;
+  const pool = ARENA_ENDLESS.pool, k = pool[arenaWaveN % pool.length];
+  arena.pushWave([[k, Math.min(8, 2 + Math.floor(arenaWaveN / 2))]]);
+  if (arenaWaveN % 5 === 0) { const bt = ARENA_ENDLESS.bossTypes[((arenaWaveN / 5) - 1) % ARENA_ENDLESS.bossTypes.length]; arena.addBoss(bt, 0.7 + arenaWaveN * 0.05); AUDIO.sfx("boom"); flash("rgba(255,40,40,0.5)"); prevBossesLeft = arena.bossCount(); }
+  arena.setTrickle({ type: pool[(arenaWaveN * 3) % pool.length], every: Math.max(0.9, 2.2 - arenaWaveN * 0.07), max: Math.min(16, 6 + arenaWaveN) });
+  endlessGap = Math.max(3.5, 7 - arenaWaveN * 0.2); endlessNextWave = arenaT + endlessGap;
+  addPoints(SCORE.arenaEndlessWave); lbSubmit();
+}
+// a campaign level is cleared — award, unlock the next, and offer NEXT (or the finale)
+function clearArenaLevel() {
+  if (state !== "play") return;
+  const finished = arenaIdx + 1 >= ARENA_LEVELS.length;
+  arenaProg.unlocked = Math.max(arenaProg.unlocked | 0, Math.min(ARENA_LEVELS.length - 1, arenaIdx + 1));
+  try { localStorage.setItem(ARENA_KEY, JSON.stringify(arenaProg)); } catch {}
+  const earned = Shop.award("arenaFloor", { idx: arenaIdx, world: arenaCfg.world, deaths: arenaLevelDeaths, finished, difficulty: S.difficulty });
+  if (earned) { coinToast(earned); updateCoinHUD(); }
+  addPoints(SCORE.arenaLevel + SCORE.arenaLevelStep * arenaIdx);
+  flash("#10c040"); AUDIO.sting("win"); shake(0.2, 0.3);
+  if (finished) {
+    addPoints(SCORE.arenaWin); state = "victory";
+    showMsg("THE THRONE IS YOURS", "All 50 levels. The Devil kneels. You are the Trap now.",
+      "Total deaths: " + totalDeaths + "  ·  Space to replay", { label: "PLAY AGAIN", clear: true, action: () => { arenaLevelDeaths = 0; buildArena(0); } });
+  } else {
+    state = "win"; const next = ARENA_LEVELS[arenaIdx + 1], crossWorld = next.world !== arenaCfg.world;
+    showMsg("LEVEL " + (arenaIdx + 1) + " CLEAR", next.taunt,
+      (crossWorld ? "ENTERING: " + (WORLDS[next.world] ? WORLDS[next.world].name : "") + " · " : "Next: ") + next.name + "  ·  Space to continue",
+      { label: "NEXT LEVEL", clear: true, action: () => { arenaLevelDeaths = 0; buildArena(arenaIdx + 1); } });
+  }
+  lbSubmit();
+}
+function updateCombatHUD(hudText) {
+  const hp = Math.max(0, player.hp);
+  const f = document.getElementById("hp-fill"); if (f) f.style.width = (hp / maxHp * 100) + "%";
+  const t = document.getElementById("hp-text"); if (t) t.textContent = Math.round(hp);
+  const bc = document.getElementById("boss-count"); if (bc && hudText != null) bc.textContent = hudText;
+}
+
+// ───────────────────────── arena level-select overlay ─────────────────────────
+let arenaSelectEl = null;
+function buildArenaSelect() {
+  if (arenaSelectEl) return arenaSelectEl;
+  const wrap = document.createElement("div"); wrap.id = "arena-select"; wrap.className = "as-panel";
+  wrap.innerHTML = `<div class="as-card">
+    <div class="as-head"><h2>⚔ ARENA CAMPAIGN</h2><button class="as-close" aria-label="Close">✕</button></div>
+    <p class="as-sub">50 levels · 5 worlds · boss every 10th. Pick your fight.</p>
+    <div class="as-worlds" id="as-worlds"></div>
+    <div class="as-grid" id="as-grid"></div>
+    <button class="as-endless" id="as-endless">☠ ENDLESS — THE GRIND (survive forever)</button>
+  </div>`;
+  document.body.appendChild(wrap); arenaSelectEl = wrap;
+  wrap.addEventListener("click", (e) => { if (e.target === wrap) closeArenaSelect(); });
+  wrap.querySelector(".as-close").addEventListener("click", closeArenaSelect);
+  wrap.querySelector("#as-endless").addEventListener("click", () => { closeArenaSelect(); ensureName().then(startEndless); });
+  return wrap;
+}
+function renderArenaSelect() {
+  const unlocked = arenaProg.unlocked | 0;
+  arenaSelectEl.querySelector("#as-worlds").innerHTML = WORLDS.map((W) => `<span class="as-wtag w${W.id}">${W.id + 1}· ${W.name}</span>`).join("");
+  const grid = arenaSelectEl.querySelector("#as-grid"); grid.innerHTML = "";
+  ARENA_LEVELS.forEach((Lv, i) => {
+    const locked = i > unlocked, boss = Lv.bosses && Lv.bosses.length;
+    const cell = document.createElement("button");
+    cell.className = "as-cell w" + Lv.world + (locked ? " locked" : "") + (i === unlocked ? " next" : "") + (boss ? " boss" : "");
+    cell.innerHTML = `<span class="as-num">${i + 1}</span>${boss ? '<span class="as-skull">☠</span>' : ""}`;
+    cell.title = locked ? "Locked — clear level " + i : (Lv.name + " · " + (Lv.objLabel || ""));
+    if (!locked) cell.addEventListener("click", () => { closeArenaSelect(); ensureName().then(() => startArena(i)); });
+    grid.appendChild(cell);
+  });
+}
+function openArenaSelect() { buildArenaSelect(); renderArenaSelect(); document.getElementById("intro").style.display = ""; arenaSelectEl.classList.add("show"); document.exitPointerLock?.(); }
+function closeArenaSelect() { if (arenaSelectEl) arenaSelectEl.classList.remove("show"); }
+function isArenaSelectOpen() { return arenaSelectEl && arenaSelectEl.classList.contains("show"); }
 
 // ───────────────────────── settings application ─────────────────────────
 let lastFov = S.fov;
@@ -954,20 +1149,22 @@ function frame() {
     if (mode === "maze" && state === "play") updateTimerHUD();
     // pit slabs dropping
     world.traverse((m) => { if (m.userData && m.userData.dropping && m.position.y > -16) { m.position.y -= dt * 30; if (m.position.y < -15) m.visible = false; } });
-    // arena combat — enemies, bosses, projectiles
+    // arena combat — enemies, bosses, projectiles, objective tracking
     if (mode === "arena" && arena) {
       if (shootHeld && state === "play") fire();
       const res = arena.update(dt, player.pos, camera, state === "play");
       if (state === "play") {
         // leaderboard: award each boss destroyed (bossesLeft dropped this frame)
-        if (res.changed && res.bossesLeft < prevBossesLeft) { const killed = prevBossesLeft - res.bossesLeft; addBossKill(killed); addPoints(killed * SCORE.bossKill); const e = Shop.award("boss", { n: killed, difficulty: S.difficulty }); coinToast(e); updateCoinHUD(); lbSubmit(); }
+        if (res.changed && res.bossesLeft < prevBossesLeft) { const killed = prevBossesLeft - res.bossesLeft; addBossKill(killed); addPoints(killed * SCORE.bossKill); const e = Shop.award("boss", { n: killed, difficulty: S.difficulty }); if (e) { coinToast(e); updateCoinHUD(); } lbSubmit(); }
         prevBossesLeft = res.bossesLeft;
         const dmg = player.invuln > 0 ? 0 : res.playerDamage;   // dash i-frames negate the hit
-        if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); shake(0.14, 0.16); updateCombatHUD(res.bossesLeft); if (player.hp <= 0) die("shot"); }
-        else if (res.changed) updateCombatHUD(res.bossesLeft);
-        if (res.healCollected) { player.hp = Math.min(maxHp, player.hp + res.healCollected); AUDIO.sfx("heal"); flash("rgba(40,210,120,0.45)"); spawnBurst(player.pos.x, EYE, player.pos.z, 0x45e07a, 8); updateCombatHUD(res.bossesLeft); }
+        if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); shake(0.14, 0.16); if (player.hp <= 0) die("shot"); }
+        if (res.healCollected) { player.hp = Math.min(maxHp, player.hp + res.healCollected); AUDIO.sfx("heal"); flash("rgba(40,210,120,0.45)"); spawnBurst(player.pos.x, EYE, player.pos.z, 0x45e07a, 8); }
+        if (arenaEndless) { arenaScore = res.killCount; endlessTick(); }
+        if (state === "play") updateCombatHUD(arenaEndless ? ("WAVE " + arenaWaveN + " · ☠ " + arenaScore) : res.hudText);
+        if (arenaHaz.shrinkOn && arenaRing) { const sr = arenaSafeR(); arenaRing.scale.set(sr, 1, sr); arenaRing.material.opacity = 0.22 + 0.12 * Math.sin(t * 5); }
         updateDashHUD();
-        if (res.win) winArena();
+        if (!arenaEndless && res.win) clearArenaLevel();
       }
     }
     if (flashT > 0) { flashT -= dt; HUD.flash.style.opacity = String(Math.max(0, flashT / 0.4 * 0.55)); }
@@ -996,8 +1193,14 @@ window.Trap = {
   get player() { return player; }, LEVELS, TS,
   start: startGame,
   startArena,
+  startEndless,
   startGuarded: startGameGuarded,
   startArenaGuarded,
+  openArenaSelect,
+  arenaGoto(i) { arenaLevelDeaths = 0; buildArena(i); },
+  get arenaLevel() { return arenaIdx; }, get arenaWave() { return arenaWaveN; }, get arenaEndlessOn() { return arenaEndless; },
+  get arenaHaz() { return arenaHaz; }, get arenaCenter() { return arenaCenter; },
+  arenaLevels: ARENA_LEVELS,
   backToMenu,
   openSettings,
   openLeaderboard,
@@ -1028,7 +1231,7 @@ window.Trap = {
     const dmg = player.invuln > 0 ? 0 : res.playerDamage;
     if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); if (player.hp <= 0) die("shot"); }
     if (res.healCollected) player.hp = Math.min(maxHp, player.hp + res.healCollected);
-    if (res.win) winArena();
+    if (arenaEndless) { arenaT += dt; arenaScore = res.killCount; endlessTick(); } else if (res.win) clearArenaLevel();
     return player.hp;
   },
   // deterministic heal-pickup test: drop an orb on the player, advance once, return what happened
@@ -1046,8 +1249,21 @@ window.Trap = {
     steerToLock(dt); shootHeld = true; fire();
     const res = arena.update(dt, player.pos, camera, true);
     if (!godmode && res.playerDamage > 0) { player.hp = Math.max(0, player.hp - res.playerDamage); if (player.hp <= 0) die("shot"); }
-    if (res.win) winArena();
+    if (arenaEndless) { arenaT += dt; arenaScore = res.killCount; endlessTick(); } else if (res.win) clearArenaLevel();
     return this.arenaInfo();
+  },
+  // headless campaign verifier: god-mode auto-clear of the current arena level
+  arenaForceClear(maxSteps = 600) {
+    if (mode !== "arena" || !arena) return { state, ok: false };
+    const survive = arenaCfg && arenaCfg.objective === "survive";
+    const dt = survive ? 0.2 : 0.05;
+    let steps = 0;
+    for (; steps < maxSteps && state === "play"; steps++) {
+      arena.damageAll(99999);                                    // god-mode offence
+      const res = arena.update(dt, player.pos, camera, true);    // ignore res.playerDamage = god-mode defence
+      if (res.win) clearArenaLevel();
+    }
+    return { state, steps, objective: arenaCfg && arenaCfg.objective, idx: arenaIdx };
   },
 };
 window.dispatchEvent(new Event("trap-ready"));
