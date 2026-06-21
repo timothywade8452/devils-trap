@@ -113,6 +113,18 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       segs[i].material.opacity = on ? 1 : 0.35;
     }
   }
+  // ── compact floating health bar for a regular enemy (shows how much HP is left as you shoot it) ──
+  function makeMiniBar(width) {
+    const grp = new THREE.Group();
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.14, 0.32), new THREE.MeshBasicMaterial({ color: 0x05030a, transparent: true, opacity: 0.7, depthTest: false })); bg.renderOrder = 998; grp.add(bg);
+    const fill = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.22), new THREE.MeshBasicMaterial({ color: 0x6cff8a, transparent: true, depthTest: false })); fill.position.z = 0.01; fill.renderOrder = 999; grp.add(fill);
+    grp.userData = { fill, width }; grp.visible = false; return grp;
+  }
+  function setMiniBar(grp, frac) {
+    frac = Math.max(0, Math.min(1, frac)); const { fill, width } = grp.userData;
+    fill.scale.x = frac; fill.position.x = -(width * (1 - frac)) / 2;
+    fill.material.color.setHex(frac > 0.5 ? 0x6cff8a : frac > 0.25 ? 0xffc23c : 0xff3b3b);
+  }
 
   // ─────────────────────────── boss model builders ───────────────────────────
   function buildBossModel(i) {
@@ -228,6 +240,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     applyMods(e);
     if (opts.mod) for (const m of [].concat(opts.mod)) { const save = mods; mods = [m]; applyMods(e); mods = save; }
     if (e.marked) { const crown = new THREE.Mesh(new THREE.TorusGeometry(def.size + 0.6, 0.12, 6, 20), new THREE.MeshBasicMaterial({ color: 0xffe24a, blending: THREE.AdditiveBlending, transparent: true })); crown.rotation.x = Math.PI / 2; crown.position.y = def.size + 1.2; mdl.m.add(crown); e.crown = crown; }
+    const bar = makeMiniBar(Math.max(1.6, def.size * 1.3)); g.add(bar); e.bar = bar;   // floating HP bar (billboarded each frame)
     enemies.push(e);
     return e;
   }
@@ -298,11 +311,13 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   // ─────────────────────────── projectiles ───────────────────────────
   function playerShoot(origin, dir) {
     if (pProj.length > 40) return;
-    const col = PLAYER_COLORS[colorIx++ % PLAYER_COLORS.length];
-    const m = new THREE.Mesh(SPH, bubbleMat(col)); m.scale.setScalar(0.55); m.position.copy(origin); g.add(m);
-    m.add(halo(col, 2.2, 0.6));
+    const col = PLAYER_COLORS[0];   // a single, calm colour — no per-shot rainbow flicker
+    // normal-blended coloured core (reads as its colour instead of blooming to white) + a small soft glow.
+    // No muzzle flash at the camera — that big additive flash was the "flashlight in the eyes".
+    const m = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95 }));
+    m.scale.setScalar(0.5); m.position.copy(origin); g.add(m);
+    m.add(halo(col, 1.0, 0.28));
     pProj.push({ m, vel: dir.clone().normalize().multiplyScalar(115), life: 2.6, dmg: 18, col });
-    muzzle(origin, col, 0.7);
   }
   // glowing tracer enemy shot (optionally ballistic via grav)
   function enemyShoot(from, dirVec, speed, dmg, col, grav = 0) {
@@ -474,7 +489,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     else if (fire === "summon") { const n = 2; for (let k = 0; k < n; k++) spawnEnemy(e.def.summon || "imp", clampX(from.x + rand(-6, 6)), clampZ(from.z + rand(-6, 6)), {}); audio.sfx("boom"); }
   }
 
-  function updateEnemy(e, dt, playerPos, live) {
+  function updateEnemy(e, dt, playerPos, live, camera) {
     e.bob += dt * 4;
     tmp.copy(playerPos).sub(e.m.position); tmp.y = 0; const dist = tmp.length(); tmp.normalize();
     const spd = e.def.speed * (e.speedMul || 1);
@@ -490,13 +505,23 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     }
     const yBase = (e.def.model === "imp" || e.def.model === "hound") ? 1.8 : 2.6;
     e.m.position.y = yBase + Math.sin(e.bob) * 0.4;
-    // face the player (so the shield/eye orient correctly)
-    if (dist > 0.1) e.m.rotation.y = Math.atan2(tmp.x, tmp.z);
+    // face the player; SHIELDED enemies turn slowly so a strafing/dashing player can flank the shield
+    if (dist > 0.1) {
+      const want = Math.atan2(tmp.x, tmp.z);
+      if (e.def.shield) { let d = want - e.m.rotation.y; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; e.m.rotation.y += d * Math.min(1, dt * 1.7); }
+      else e.m.rotation.y = want;
+    }
     if (e.def.move === "static") e.m.rotation.y += dt * 1.5;     // sentry spins
     e.flash = Math.max(0, e.flash - dt);
     e.body.material.emissiveIntensity = (e.def.model === "wraith" ? 1.3 : 1.0) + e.flash * 5 + (e.wind > 0 ? 2.4 : 0);
     e.glow.material.opacity = 0.45 + (e.wind > 0 ? 0.5 : 0) + e.flash;
     if (e.crown) e.crown.rotation.z += dt * 2;
+    if (e.bar) {   // floating HP bar: billboard to camera; show once damaged (or always for big enemies)
+      e.bar.position.set(e.m.position.x, e.m.position.y + e.def.size + 1.4, e.m.position.z);
+      if (camera) e.bar.quaternion.copy(camera.quaternion);
+      const show = e.hp < e.max || e.def.size >= 1.6;
+      e.bar.visible = show; if (show) setMiniBar(e.bar, e.hp / e.max);
+    }
 
     if (!live) return 0;
     let melee = 0;
@@ -553,7 +578,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     }
 
     // ── enemies ──
-    for (let i = enemies.length - 1; i >= 0; i--) playerDamage += updateEnemy(enemies[i], dt, playerPos, live);
+    for (let i = enemies.length - 1; i >= 0; i--) playerDamage += updateEnemy(enemies[i], dt, playerPos, live, camera);
 
     // ── player projectiles ──
     for (let i = pProj.length - 1; i >= 0; i--) {
@@ -562,9 +587,15 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
       if (!hit) for (let j = enemies.length - 1; j >= 0; j--) {
         const e = enemies[j]; const er = e.def.size + 0.7;
         if (p.m.position.distanceTo(e.m.position) < er) {
-          // shielded enemy: shots into its front are mostly blocked
-          if (e.def.shield) { tmp.copy(p.m.position).sub(e.m.position); tmp.y = 0; tmp.normalize(); const facing = new THREE.Vector3(Math.sin(e.m.rotation.y), 0, Math.cos(e.m.rotation.y)); if (tmp.dot(facing) > 0.35) { burst(p.m.position, 0x9fd8ff, 3); audio.sfx("hit"); hit = true; break; } }
-          e.hp -= p.dmg; e.flash = Math.max(e.flash, 0.2); burst(p.m.position, p.col, 5); audio.sfx("hit"); hit = true;
+          let dmg = p.dmg;
+          // shielded enemy: FRONTAL hits are heavily reduced (not negated, so it's always killable);
+          // flank or dash behind it for full damage. The shield turns slowly to make that possible.
+          if (e.def.shield) {
+            tmp.copy(p.m.position).sub(e.m.position); tmp.y = 0; tmp.normalize();
+            const facing = new THREE.Vector3(Math.sin(e.m.rotation.y), 0, Math.cos(e.m.rotation.y));
+            if (tmp.dot(facing) > 0.45) { dmg = p.dmg * 0.3; burst(p.m.position, 0x9fd8ff, 4); }
+          }
+          e.hp -= dmg; e.flash = Math.max(e.flash, 0.2); burst(p.m.position, p.col, 5); audio.sfx("hit"); hit = true;
           if (e.hp <= 0) killEnemy(j);
           break;
         }
@@ -660,6 +691,7 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
     // splitting affix: imps fracture into two weaker imps
     if (e.split && e.kind !== "imp") { for (let k = 0; k < 2; k++) { const ch = spawnEnemy("imp", clampX(e.m.position.x + rand(-2, 2)), clampZ(e.m.position.z + rand(-2, 2)), {}); if (ch) { ch.hp = ch.max = Math.ceil(ch.max * 0.6); } } }
     if (Math.random() < 0.32) spawnHealth(e.m.position);
+    if (e.bar) g.remove(e.bar);
     g.remove(e.m); enemies.splice(j, 1);
   }
   function killBoss(j) {

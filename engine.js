@@ -868,7 +868,7 @@ function fire() {
     const lp = arena.lockedAim(eye, 115);   // lead the moving target
     if (lp) { const toLock = lp.sub(eye).normalize(); if (isTouch || dir.dot(toLock) > 0.74) dir = toLock; }
   }
-  const origin = eye.clone().addScaledVector(dir, 1.4);
+  const origin = eye.clone().addScaledVector(dir, 2.4);   // spawn the bolt further out so it doesn't fill the screen
   arena.playerShoot(origin, dir);
   AUDIO.sfx("shoot");
 }
@@ -927,6 +927,7 @@ function lavaCells(W, H, cx, cz) {
 // Build the encounter described by an ARENA_LEVELS entry (geometry + theme + hazards), then hand the
 // combat config to the arena controller. Recreated per level so each can have its own size/bounds.
 function buildArenaFromCfg(cfg) {
+  closeArenaSelect();                 // entering a level always dismisses the level-select overlay
   mode = "arena"; levelIdx = 0; deaths = 0; sprung = new Set(); riseTimer = 0; lavaPlane = null;
   arenaT = 0; arenaRing = null;
   for (let k = world.children.length - 1; k >= 0; k--) world.remove(world.children[k]);

@@ -69,6 +69,17 @@ ok(shrink.hp1 < shrink.hp0, `outside the shrinking ring damages the player (${sh
 const onehit = await page.evaluate(() => { window.Trap.arenaGoto(24); return window.Trap.arenaHaz.onehit; });
 ok(onehit, "sudden-death level sets one-hit (maxHp=1)");
 
+console.log("\n=== levels clear by REAL auto-fire (proves shields/enemies are killable, not just god-mode nuke) ===");
+for (const [idx, name] of [[0, "First Steps"], [3, "The Shield Wall"], [9, "THE OVERSEER"]]) {
+  const r = await page.evaluate((i) => {
+    window.Trap.arenaGoto(i);
+    let steps = 0; for (; steps < 1600 && window.Trap.state === "play"; steps++) window.Trap.arenaAutoStep(0.033, true);  // god-mode survival, REAL auto-aim fire
+    const inf = window.Trap.arenaInfo();
+    return { state: window.Trap.state, steps, enemies: inf.enemies, bosses: inf.bosses };
+  }, idx);
+  ok(r.state === "win" || r.state === "victory", `LV${idx + 1} ${name} clears by real fire (state=${r.state}, ${r.steps} steps)`);
+}
+
 console.log("\n=== live frames across hazard types (no console errors) ===");
 for (const [idx, label] of [[10, "lava"], [21, "dark"], [45, "lowgrav"], [4, "shrink"], [9, "boss"]]) {
   await page.evaluate((i) => window.Trap.arenaGoto(i), idx);
