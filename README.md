@@ -21,6 +21,23 @@ plus a separate **Arena** boss-fight mode.
 - **Mobile:** on-screen joystick or D-pad · drag to look · **JUMP / RUN / FIRE / PING / DASH**
   buttons — all with adjustable opacity, size, handedness and drag-to-reposition layout
 
+## Souls economy & shop 🛒
+
+Clear floors, kill bosses and win the arena to earn **Souls** — skill-scaled (Brutal pays more, a
+no-death clear pays a bonus). Spend them in the **Soul Shop**:
+
+- **Skins** — cosmetic accent sets that recolour your arena energy-bubbles, sonar ping, dash trail
+  and crosshair (8 skins, Standard → legendary Void Walker). Pure cosmetics, no gameplay edge.
+- **Upgrades** — *fair* aids that never trivialise the core: **Soul Magnet** (×2 Souls), **Scout's
+  Reserve** (+2 pings, auto-disabled on Brutal), **Quick Step** (faster dash), **Death Echo** (marks
+  where a trap last got you this floor), **Iron Heart** (+25 arena HP). Toggleable; ring-fenced so
+  the hardest mode stays pure.
+- **Get Souls** — optional coin packs. Display-only "coming soon" until you drop a payment link
+  (Stripe / Gumroad / Ko-fi / Lemon Squeezy…) into `shop-config.js` — no backend, no build step.
+
+Everything persists in `localStorage`. (Design lifted from the sibling *Devil's Due* shop + economy
+lessons from *SwagaCity*: cosmetic-first sinks, skill-scaled earning, convenience ring-fenced.)
+
 ## Mechanics
 
 - **Sonar ping** (F / PING) — a limited tactical scout that flashes nearby traps for a moment so
@@ -81,6 +98,7 @@ Pointer-lock FPS controller on desktop, full custom touch UI on mobile.
 - `arena.js` — the boss-fight combat module (enemies, bosses, projectiles, auto-aim lock)
 - `settings.js` — settings store + in-game settings panel
 - `profile.js` — player name capture + IP country + run stats · `leaderboard.js` — leaderboard store + UI · `lbconfig.js` — backend + scoring config
+- `shop.js` — Souls economy + Soul Shop (skins / upgrades / packs) · `shop-config.js` — coin-pack payment-link config
 - `sim.js` — shared tile rules (what kills you), used by the engine *and* the verifier
 - `levels.js` — auto-generated level data (30 levels) · `gen.cjs` — the level generator
 - `verify.mjs` — headless harness: proves every level is **beatable** (memory bot clears it),

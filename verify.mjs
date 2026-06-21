@@ -230,6 +230,30 @@ if (booted) {
   const heal = await page.evaluate(() => { window.Trap.startArena(); return window.Trap.arenaHealTest(); });
   ok(heal && heal.collected === 20 && heal.hp === 70, `health pickup heals on contact (+${heal && heal.collected} → ${heal && heal.hp})`);
   ok(errors.length === 0, "no console errors in gameplay tests" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
+
+  // ── PART E · economy & shop ──
+  console.log("\n=== PART E · economy & shop (souls / skins / upgrades / packs) ===");
+  const econ = await page.evaluate(async () => {
+    const { S } = await import("./settings.js"); const Shop = await import("./shop.js");
+    S.difficulty = "normal";
+    const clearFloor = (i) => { window.Trap.goto(i); const L = window.Trap.LEVELS[i]; window.Trap.toTile(L.goal.r, L.goal.c); window.Trap.step(0.05); };
+    const before = Shop.souls();
+    clearFloor(10); const afterOne = Shop.souls();
+    for (let i = 11; i <= 20; i++) clearFloor(i);                   // bank Souls across fresh floors
+    const buy = Shop.buySkin("toxic");
+    const skinOk = Shop.equippedSkin() === "toxic" && Shop.skinColors().bubble[0] === 0xaaff77;
+    const up = Shop.buyUpgrade("scout");
+    window.Trap.goto(0); const pingsWithScout = window.Trap.pings;  // normal 3 + Scout's Reserve 2 = 5
+    const persisted = !!JSON.parse(localStorage.getItem("devilstrap_shop_v1") || "{}").owned;
+    return { gain: afterOne - before, buy, skinOk, up, pingsWithScout, persisted };
+  });
+  ok(econ.gain >= 15, `clearing a floor earns Souls (+${econ.gain} = replay + no-death bonus; first-clears paid earlier)`);
+  ok(econ.buy && econ.buy.ok && econ.skinOk, "buying a skin equips it + swaps accent colours");
+  ok(econ.up && econ.up.ok && econ.pingsWithScout === 5, `Scout's Reserve upgrade adds +2 pings (got ${econ.pingsWithScout})`);
+  ok(econ.persisted, "shop state persists to localStorage");
+  const pack = await page.evaluate(async () => { const Shop = await import("./shop.js"); return Shop.buyPack("pack_s"); });
+  ok(pack && pack.ok === false && pack.reason === "unconfigured", "coin packs are 'coming soon' until a payment link is set");
+  ok(errors.length === 0, "no console errors in economy" + (errors.length ? " :: " + errors.slice(0, 3).join(" | ") : ""));
 }
 
 await browser.close();

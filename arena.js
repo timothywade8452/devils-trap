@@ -23,7 +23,8 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   const SPH_LO = new THREE.SphereGeometry(1, 10, 8);
 
   const bubbleMat = (hex, op = 0.95) => new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity: op, blending: THREE.AdditiveBlending });
-  const PLAYER_COLORS = [0x5cffd0, 0x7ce0ff, 0xb98cff]; // cycling bubble colours
+  let PLAYER_COLORS = [0x5cffd0, 0x7ce0ff, 0xb98cff]; // cycling bubble colours (swapped by equipped skin)
+  function setBubbleColors(arr) { if (arr && arr.length) PLAYER_COLORS = arr.slice(); }
   const ENEMY_COLOR = 0xff5a3c;
   // each boss is visually distinct: red icosahedral "Wrath", amber spiked "Inferno", violet plated "Void"
   const BOSS_COLOR = [0xff3b2e, 0xff9a3c, 0xc35cff];
@@ -525,5 +526,5 @@ export function createArena({ THREE, scene, MAT, audio, glowSprite, bounds }) {
   }
 
   function damageAll(n) { for (const b of bosses) b.hp -= n; }   // test hook for the win pipeline
-  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, lockedAim, hasLock, spawnHealthAt, killDrones };
+  return { spawn, update, playerShoot, bossCount, info, damageAll, lockedPos, lockedAim, hasLock, spawnHealthAt, killDrones, setBubbleColors };
 }

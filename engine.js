@@ -15,6 +15,7 @@ import { createArena } from "./arena.js";
 import { ensureName, getProfile, detectCountry, addPoints, addDeath, addBossKill, bumpLevel, addPlay } from "./profile.js";
 import { submit as lbSubmit, openLeaderboard } from "./leaderboard.js";
 import { levelPoints, SCORE } from "./lbconfig.js";
+import * as Shop from "./shop.js";
 
 // ───────────────────────── tunables ─────────────────────────
 const EYE = 2.3, RADIUS = 1.0, SPEED = 11, ACCEL = 60, JUMP = 9.2, GRAV = 26, DEATH_Y = -14;
@@ -158,6 +159,10 @@ let bobPhase = 0, stepDist = 0;     // view-bob + footstep cadence
 let pings = 0;                      // sonar scout charges this life
 const pingMarks = [];               // active reveal markers { mesh, life, max, rise }
 const fx = [];                      // transient celebration particles
+let activeSkin = Shop.skinColors(); // equipped cosmetic accent colours
+let maxHp = 100;                    // arena max HP (raised by Iron Heart upgrade)
+const echoMarks = new Set();        // "r,c" of this floor's death spots (Death Echo upgrade)
+const echoMeshes = [];              // rendered echo markers
 let shakeT = 0, shakeMag = 0;       // screen-shake impulse
 let levelStartT = 0;                // wall-clock start of the current floor (for the timer)
 let dashCD = 0;                     // arena dash cooldown
@@ -182,7 +187,7 @@ function cellOf(x, z) { return [Math.round(z / TS), Math.round(x / TS)]; }
 function buildLevel(i) {
   levelIdx = i; deaths = 0; sprung = new Set(); riseTimer = 0; levelStartT = clock.elapsedTime;
   for (let k = world.children.length - 1; k >= 0; k--) world.remove(world.children[k]);
-  dynamic.length = 0; pingMarks.length = 0; fx.length = 0;
+  dynamic.length = 0; pingMarks.length = 0; fx.length = 0; echoMeshes.length = 0; echoMarks.clear();
   const L = LEVELS[i]; grid = L.grid.map((r) => r.split("")); gridH = grid.length; gridW = grid[0].length;
   // apply this act's colour theme
   const theme = THEMES[L.tier || 0];
@@ -255,7 +260,8 @@ function respawn() {
   sprung = new Set();
   // un-drop any pit slabs
   world.traverse((m) => { if (m.userData && m.userData.pitTile) { m.position.y = 0; m.visible = true; } });
-  pings = diff().pings; player.invuln = 0; shakeT = 0; clearPingMarks();
+  pings = diff().pings > 0 ? diff().pings + Shop.pingBonus() : 0;   // Scout's Reserve adds charges (not on Brutal)
+  player.invuln = 0; shakeT = 0; clearPingMarks(); renderEcho();
   state = "play"; hideMsg();
   updateHUD(); updatePingHUD();
 }
@@ -265,6 +271,7 @@ function die(reason) {
   if (state !== "play") return;
   state = "dead"; deaths++; totalDeaths++;
   addDeath(); lbSubmit();                 // leaderboard: count the death
+  if (mode === "maze") { const [er, ec] = cellOf(player.pos.x, player.pos.z); echoMarks.add(er + "," + ec); }  // Death Echo upgrade
   flash("#c01010"); AUDIO.sting("die"); AUDIO.trap(reason); shake(0.4, 0.35);
   const pool = TAUNTS[reason] || TAUNTS.void;
   const label = mode === "arena" ? "FIGHT AGAIN" : "RETRY";
@@ -284,6 +291,9 @@ function winLevel() {
   if (isBest) { PB[levelIdx] = { deaths, time: +time.toFixed(1) }; try { localStorage.setItem(PB_KEY, JSON.stringify(PB)); } catch {} }
   // leaderboard: award the cleared floor + record furthest floor reached
   addPoints(levelPoints(levelIdx)); bumpLevel(levelIdx + 1);
+  // souls economy: pay for the clear (skill-scaled by difficulty + no-death bonus)
+  const earned = Shop.award("floor", { idx: levelIdx, deaths, finished: levelIdx + 1 >= LEVELS.length, difficulty: S.difficulty });
+  coinToast(earned); updateCoinHUD();
   const tline = `Cleared in ${time.toFixed(1)}s · ☠${deaths}`;
   if (levelIdx + 1 >= LEVELS.length) {
     addPoints(SCORE.fullVictory); state = "victory";
@@ -326,11 +336,11 @@ addEventListener("keydown", (e) => {
   }
 });
 // mouse wheel = zoom in / out
-addEventListener("wheel", (e) => { if (state === "play" && !isSettingsOpen()) { targetFov = clamp(targetFov + Math.sign(e.deltaY) * 5, 30, 100); e.preventDefault(); } }, { passive: false });
+addEventListener("wheel", (e) => { if (state === "play" && !overlayOpen()) { targetFov = clamp(targetFov + Math.sign(e.deltaY) * 5, 30, 100); e.preventDefault(); } }, { passive: false });
 addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 canvas.addEventListener("click", () => {
-  if (isSettingsOpen()) return;
+  if (overlayOpen()) return;
   if (state === "menu") { startGame(); return; }
   if (state === "dead") { respawn(); return; }
   if (state === "win" || state === "victory") { advance(); return; }
@@ -340,7 +350,7 @@ canvas.addEventListener("click", () => {
 canvas.addEventListener("mousedown", (e) => { if (e.button === 0 && mode === "arena" && document.pointerLockElement === canvas) { shootHeld = true; fire(); } });
 addEventListener("mouseup", (e) => { if (e.button === 0) shootHeld = false; });
 document.addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement === canvas && state === "play" && !isSettingsOpen()) {
+  if (document.pointerLockElement === canvas && state === "play" && !overlayOpen()) {
     const s = 0.0023 * S.sensitivity, iv = S.invertY ? -1 : 1;
     player.yaw -= e.movementX * s; player.pitch = clamp(player.pitch - e.movementY * s * iv, -1.3, 1.3);
   }
@@ -466,7 +476,7 @@ function setupTouch() {
   // look — single-finger drag anywhere on the canvas (buttons sit above and stop propagation)
   let lookId = null, lastLook = null;
   canvas.addEventListener("touchstart", (e) => {
-    if (editLayout || isSettingsOpen()) return;
+    if (editLayout || overlayOpen()) return;
     const t = e.changedTouches[0];
     if (state !== "play") return;       // taps for menu/respawn handled by the click event
     if (lookId === null) { lookId = t.identifier; lastLook = { x: t.clientX, y: t.clientY }; }
@@ -505,7 +515,7 @@ function collide(pos) {
 function tick(dt) {
   if (state !== "play") return;
   if (dashCD > 0) dashCD -= dt; if (player.invuln > 0) player.invuln -= dt;
-  const frozen = isSettingsOpen();
+  const frozen = overlayOpen();
   // movement intent (camera-relative)
   let ix = 0, iz = 0;
   if (!frozen) {
@@ -571,7 +581,7 @@ function springVisual(ch, r, c) {
 // few steps. Doesn't reveal the whole maze (radius + limited charges), so memory still rules.
 const TRAP_REVEAL = { "^": 0xff3b2e, "J": 0xffd23c, "C": 0xff7a2e, "o": 0x5cc8ff, "~": 0xff5a18 };
 function sonarPing() {
-  if (mode !== "maze" || state !== "play" || isSettingsOpen() || pings <= 0) return 0;
+  if (mode !== "maze" || state !== "play" || overlayOpen() || pings <= 0) return 0;
   pings--; updatePingHUD();
   const [pr, pc] = cellOf(player.pos.x, player.pos.z); const R = 4;
   let revealed = 0;
@@ -581,7 +591,7 @@ function sonarPing() {
     if (!col || (ch === "o" && sprung.has(`${r},${c}`))) continue;
     addRevealMark(worldX(c), worldZ(r), col); revealed++;
   }
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.95, 36), new THREE.MeshBasicMaterial({ color: 0xaad8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.95, 36), new THREE.MeshBasicMaterial({ color: activeSkin.ping, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.set(player.pos.x, 0.25, player.pos.z); world.add(ring);
   pingMarks.push({ mesh: ring, life: 0.7, max: 0.7, grow: R * TS / 0.9 });
   AUDIO.ping(); shake(0.05, 0.12);
@@ -614,6 +624,31 @@ function updatePingHUD() {
 function updateTimerHUD() { const el = document.getElementById("hud-timer"); if (el) el.textContent = "⏱ " + (clock.elapsedTime - levelStartT).toFixed(1) + "s"; }
 function updateDashHUD() { const el = document.getElementById("dash-ind"); if (!el) return; const ready = dashCD <= 0; el.textContent = ready ? "⟫ DASH" : "⟫ " + Math.max(0, dashCD).toFixed(1); el.classList.toggle("ready", ready); }
 
+// ───────────────────────── shop / souls ─────────────────────────
+function overlayOpen() { return isSettingsOpen() || Shop.isShopOpen(); }
+function applyShop() {
+  activeSkin = Shop.skinColors();
+  if (arena) arena.setBubbleColors(activeSkin.bubble);
+  const cross = document.getElementById("crosshair"); if (cross) cross.style.color = `rgba(${activeSkin.accent},0.85)`;
+  updateCoinHUD();
+}
+function updateCoinHUD() { const el = document.getElementById("hud-souls"); if (el) el.textContent = "💀 " + Shop.souls(); }
+let coinToastT = null;
+function coinToast(n) {
+  if (!n) return; const el = document.getElementById("coin-toast"); if (!el) return;
+  el.textContent = "+" + n + " 💀"; el.classList.add("show");
+  clearTimeout(coinToastT); coinToastT = setTimeout(() => el.classList.remove("show"), 1300);
+}
+function renderEcho() {
+  for (const m of echoMeshes) world.remove(m); echoMeshes.length = 0;
+  if (mode !== "maze" || !Shop.deathEcho()) return;
+  for (const k of echoMarks) {
+    const [r, c] = k.split(",").map(Number);
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.72, 14), new THREE.MeshBasicMaterial({ color: 0xff3a3a, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.position.set(worldX(c), 0.08, worldZ(r)); world.add(m); echoMeshes.push(m);
+  }
+}
+
 // transient particle burst (level-clear celebration / pickups)
 function spawnBurst(x, y, z, col, n) {
   for (let i = 0; i < n && fx.length < 90; i++) {
@@ -633,7 +668,7 @@ function updateFx(dt) {
 
 // ───────────────────────── arena dodge dash ─────────────────────────
 function tryDash() {
-  if (mode !== "arena" || state !== "play" || dashCD > 0 || isSettingsOpen()) return false;
+  if (mode !== "arena" || state !== "play" || dashCD > 0 || overlayOpen()) return false;
   let ix = 0, iz = 0;
   if (keys.KeyW || keys.ArrowUp) iz += 1; if (keys.KeyS || keys.ArrowDown) iz -= 1;
   if (keys.KeyA || keys.ArrowLeft) ix -= 1; if (keys.KeyD || keys.ArrowRight) ix += 1;
@@ -642,8 +677,8 @@ function tryDash() {
   let dx, dz, l = Math.hypot(ix, iz);
   if (l > 0.1) { ix /= l; iz /= l; dx = iz * sin - ix * cos; dz = iz * cos + ix * sin; } else { dx = sin; dz = cos; }
   player.vel.x += dx * DASH_SPEED; player.vel.z += dz * DASH_SPEED;
-  dashCD = DASH_CD; player.invuln = DASH_IFRAME;
-  AUDIO.sfx("dash"); shake(0.1, 0.14);
+  dashCD = DASH_CD * Shop.dashMult(); player.invuln = DASH_IFRAME;   // Quick Step cuts the cooldown
+  AUDIO.sfx("dash"); shake(0.1, 0.14); spawnBurst(player.pos.x, EYE - 1, player.pos.z, activeSkin.trail, 10);  // skin-coloured dash trail
   return true;
 }
 
@@ -778,7 +813,7 @@ function startArenaGuarded() { ensureName().then(() => startArena()); }
 // ───────────────────────── arena combat mode ─────────────────────────
 let lastShot = 0;
 function fire() {
-  if (mode !== "arena" || !arena || state !== "play" || isSettingsOpen()) return;
+  if (mode !== "arena" || !arena || state !== "play" || overlayOpen()) return;
   const now = clock.elapsedTime;
   if (now - lastShot < 0.2) return;
   lastShot = now;
@@ -825,9 +860,11 @@ function buildArena() {
     else if (ch === "P") { const p = new THREE.Mesh(new THREE.CylinderGeometry(TS * 0.34, TS * 0.4, WALL_H * 0.85, 16), MAT.pillar); p.position.set(x, WALL_H * 0.42, z); p.castShadow = true; world.add(p); }
   }
   if (!arena) arena = createArena({ THREE, scene: world, MAT, glowSprite, audio: AUDIO, worldX, worldZ, bounds: { minX: TS, maxX: worldX(W - 2), minZ: TS, maxZ: worldZ(H - 2) } });
+  arena.setBubbleColors(activeSkin.bubble);
   arena.spawn(worldX(cx), worldZ(cz));
   prevBossesLeft = arena.bossCount();
-  player.pos.set(worldX(cx), 0, worldZ(cz)); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = 100;
+  maxHp = Shop.arenaMaxHp();   // Iron Heart upgrade
+  player.pos.set(worldX(cx), 0, worldZ(cz)); player.vel.set(0, 0, 0); player.grounded = true; player.pitch = 0; player.yaw = 0; player.hp = maxHp;
   pings = 0; pingMarks.length = 0; fx.length = 0; dashCD = 0; player.invuln = 0; shakeT = 0;
   document.getElementById("combat").hidden = false;
   HUD.level.textContent = "ARENA"; HUD.name.textContent = "Slay the bosses"; HUD.deaths.textContent = "";
@@ -837,10 +874,10 @@ function buildArena() {
   state = "play"; hideMsg();
 }
 function startArena() { document.getElementById("intro").style.display = "none"; addPlay(); lbSubmit(getProfile(), true); AUDIO.start(); buildArena(); if (!isTouch) canvas.requestPointerLock(); }
-function winArena() { if (state !== "play") return; state = "victory"; addPoints(SCORE.arenaWin); lbSubmit(); flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Space to fight again", { label: "FIGHT AGAIN", clear: true }); }
+function winArena() { if (state !== "play") return; state = "victory"; addPoints(SCORE.arenaWin); lbSubmit(); const e = Shop.award("arenaWin", { difficulty: S.difficulty }); coinToast(e); updateCoinHUD(); flash("#10c040"); AUDIO.sting("win"); showMsg("ARENA CLEARED", "Every boss down. The Devil grins.", "Space to fight again", { label: "FIGHT AGAIN", clear: true }); }
 function updateCombatHUD(bossesLeft) {
   const hp = Math.max(0, player.hp);
-  document.getElementById("hp-fill").style.width = hp + "%";
+  document.getElementById("hp-fill").style.width = (hp / maxHp * 100) + "%";
   document.getElementById("hp-text").textContent = Math.round(hp);
   document.getElementById("boss-count").textContent = "BOSSES " + bossesLeft;
 }
@@ -923,12 +960,12 @@ function frame() {
       const res = arena.update(dt, player.pos, camera, state === "play");
       if (state === "play") {
         // leaderboard: award each boss destroyed (bossesLeft dropped this frame)
-        if (res.changed && res.bossesLeft < prevBossesLeft) { const killed = prevBossesLeft - res.bossesLeft; addBossKill(killed); addPoints(killed * SCORE.bossKill); lbSubmit(); }
+        if (res.changed && res.bossesLeft < prevBossesLeft) { const killed = prevBossesLeft - res.bossesLeft; addBossKill(killed); addPoints(killed * SCORE.bossKill); const e = Shop.award("boss", { n: killed, difficulty: S.difficulty }); coinToast(e); updateCoinHUD(); lbSubmit(); }
         prevBossesLeft = res.bossesLeft;
         const dmg = player.invuln > 0 ? 0 : res.playerDamage;   // dash i-frames negate the hit
         if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); flash("rgba(200,20,20,0.9)"); AUDIO.sfx("hurt"); shake(0.14, 0.16); updateCombatHUD(res.bossesLeft); if (player.hp <= 0) die("shot"); }
         else if (res.changed) updateCombatHUD(res.bossesLeft);
-        if (res.healCollected) { player.hp = Math.min(100, player.hp + res.healCollected); AUDIO.sfx("heal"); flash("rgba(40,210,120,0.45)"); spawnBurst(player.pos.x, EYE, player.pos.z, 0x45e07a, 8); updateCombatHUD(res.bossesLeft); }
+        if (res.healCollected) { player.hp = Math.min(maxHp, player.hp + res.healCollected); AUDIO.sfx("heal"); flash("rgba(40,210,120,0.45)"); spawnBurst(player.pos.x, EYE, player.pos.z, 0x45e07a, 8); updateCombatHUD(res.bossesLeft); }
         updateDashHUD();
         if (res.win) winArena();
       }
@@ -941,6 +978,8 @@ function frame() {
 setupTouch();
 mountSettings({ onChange: applySettings, onEditLayout: (on) => { editLayout = on; applyMobileLayout(); }, isTouch });
 applySettings();
+Shop.mountShop({ onChange: applyShop });
+applyShop();
 frame();
 
 // capture the player's name up front (modal if needed), then detect country + show name in the HUD
@@ -962,6 +1001,7 @@ window.Trap = {
   backToMenu,
   openSettings,
   openLeaderboard,
+  openShop: Shop.openShop,
   toggleMute,
   goto(i) { mode = "maze"; document.getElementById("combat").hidden = true; document.getElementById("intro").style.display = "none"; buildLevel(i); },
   // step the simulation by hand (dt seconds), used by the bot
@@ -987,7 +1027,7 @@ window.Trap = {
     const res = arena.update(dt, player.pos, camera, true);
     const dmg = player.invuln > 0 ? 0 : res.playerDamage;
     if (dmg > 0) { player.hp = Math.max(0, player.hp - dmg); if (player.hp <= 0) die("shot"); }
-    if (res.healCollected) player.hp = Math.min(100, player.hp + res.healCollected);
+    if (res.healCollected) player.hp = Math.min(maxHp, player.hp + res.healCollected);
     if (res.win) winArena();
     return player.hp;
   },
@@ -996,7 +1036,7 @@ window.Trap = {
     if (mode !== "arena" || !arena) return null;
     player.hp = 50; arena.spawnHealthAt(player.pos.x, player.pos.z);
     const res = arena.update(0.033, player.pos, camera, true);
-    if (res.healCollected) player.hp = Math.min(100, player.hp + res.healCollected);
+    if (res.healCollected) player.hp = Math.min(maxHp, player.hp + res.healCollected);
     return { collected: res.healCollected, hp: player.hp };
   },
   // deterministic mobile auto-aim loop (face the lock + fire + step) for the headless test
